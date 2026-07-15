@@ -80,4 +80,4 @@ If your fan is connected to a smart wall switch or plug (e.g. Sonoff, Shelly, Tu
 
 Enhancements, custom raw timing conversions, and native `infrared` support developed by [@selvakk2k](https://github.com/selvakk2k) with design and ideation assistance from **Claude** (Anthropic) and code implementation assistance from **Gemini/Antigravity** (Google DeepMind).
 
-Licensed under the **Apache License 2.0**. See the `LICENSE` file for details.
+Licensed under the **MIT License**. See the `LICENSE` file for details.
