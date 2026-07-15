@@ -1,0 +1,19 @@
+speed_adjust:
+  name: "Speed Adjust"
+  description: "Cycles individual increment tiers via an explicit service call."
+
+set_timer:
+  name: "Set Timer"
+  description: "Accepts a duration input to blast hardware-level sleep timers."
+  fields:
+    duration:
+      name: "Duration"
+      description: "Timer duration in hours (2 or 6)"
+      example: 2
+      required: true
+      selector:
+        number:
+          min: 2
+          max: 6
+          step: 4
+          mode: box

@@ -1,0 +1,11 @@
+{
+  "domain": "superfan_ir",
+  "name": "Superfan IR",
+  "codeowners": ["@selvakk2k"],
+  "dependencies": [],
+  "documentation": "https://github.com/selvakk2k/superfan_ir",
+  "issue_tracker": "https://github.com/selvakk2k/superfan_ir/issues",
+  "iot_class": "local_push",
+  "config_flow": true,
+  "version": "1.0.0"
+}
