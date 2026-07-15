@@ -45,11 +45,6 @@ If your fan is connected to a smart wall switch or plug (e.g. Sonoff, Shelly, Tu
 * **Auto Power-on with Boot Delay:** Turning on the fan or adjusting the speed will automatically switch on the physical smart plug first and wait **2 seconds** for the fan's receiver board to boot before blasting the IR command.
 * **Power-Off Bypass:** Turning the fan off in Home Assistant will skip sending the IR command entirely and cleanly cut physical power via the smart switch, instantly updating the UI to "Off".
 
-### 3. Native Services
-Exposes two custom services (designed for scripting or automation backups):
-* `speed_adjust`: Cycles fan speeds sequentially.
-* `set_timer`: Sends hardware-level timers (2-hour or 6-hour sleep timers) directly to the fan.
-
 ---
 
 ## Installation
