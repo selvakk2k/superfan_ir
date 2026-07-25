@@ -79,6 +79,8 @@ If your fan is connected to a smart wall switch or plug (e.g. Sonoff, Shelly, Tu
 
 ## ESPHome Configuration Examples
 
+> ⚠️ **Note:** Pin numbers in the examples below (e.g., `P7`, `P26`, `GPIOXX`) are for demonstration purposes. Be sure to substitute them with the actual pin assignments for your specific hardware board.
+
 ### Option A: Modern Native Infrared (`ir_rf_proxy`) [Recommended]
 
 Add this to your ESPHome device YAML:
