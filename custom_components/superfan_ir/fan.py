@@ -173,6 +173,9 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
                 from .utils import decode_tuya_to_raw
                 raw_timings = decode_tuya_to_raw(tuya_b64)
                 
+                # ESPHome transmit_raw expects positive (pulse) and negative (space) integers
+                esphome_timings = [t if i % 2 == 0 else -t for i, t in enumerate(raw_timings)]
+                
                 # Assume emitter_id contains the ESPHome device name, e.g. "ir_blaster"
                 device_name = self._emitter_id.replace("esphome.", "").strip()
                 service_name = f"{device_name}_transmit_raw" if not device_name.endswith("_transmit_raw") else device_name
@@ -180,7 +183,7 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
                 await self.hass.services.async_call(
                     "esphome",
                     service_name,
-                    {"command": raw_timings},
+                    {"command": esphome_timings},
                     context=self._context
                 )
             except Exception as e:
