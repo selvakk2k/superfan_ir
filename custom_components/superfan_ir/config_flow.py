@@ -41,13 +41,17 @@ class SuperfanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title=self.data["name"], data=self.data)
 
         # Determine domain filter based on backend choice
-        domain_filter = "remote" if self.data[CONF_BACKEND] == BACKEND_REMOTE else "infrared"
-
-        data_schema = vol.Schema({
-            vol.Required(CONF_EMITTER_ENTITY_ID): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=domain_filter)
-            )
-        })
+        if self.data.get(CONF_BACKEND) == "ESPHome (Raw API Service)":
+            data_schema = vol.Schema({
+                vol.Required(CONF_EMITTER_ENTITY_ID, default="ir_blaster"): str
+            })
+        else:
+            domain_filter = "remote" if self.data.get(CONF_BACKEND) == BACKEND_REMOTE else "infrared"
+            data_schema = vol.Schema({
+                vol.Required(CONF_EMITTER_ENTITY_ID): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=domain_filter)
+                )
+            })
 
         return self.async_show_form(
             step_id="emitter", data_schema=data_schema, errors=errors
@@ -72,7 +76,11 @@ class SuperfanOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        domain_filter = "remote" if self._config_entry.data.get(CONF_BACKEND) == BACKEND_REMOTE else "infrared"
+        if self._config_entry.data.get(CONF_BACKEND) == "ESPHome (Raw API Service)":
+            emitter_selector = str
+        else:
+            domain_filter = "remote" if self._config_entry.data.get(CONF_BACKEND) == BACKEND_REMOTE else "infrared"
+            emitter_selector = selector.EntitySelector(selector.EntitySelectorConfig(domain=domain_filter))
 
         return self.async_show_form(
             step_id="init",
@@ -83,9 +91,7 @@ class SuperfanOptionsFlow(config_entries.OptionsFlow):
                         CONF_EMITTER_ENTITY_ID,
                         self._config_entry.data.get(CONF_EMITTER_ENTITY_ID)
                     ),
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=domain_filter)
-                ),
+                ): emitter_selector,
                 vol.Optional(
                     CONF_POWER_SWITCH,
                     description={"suggested_value": self._config_entry.options.get(CONF_POWER_SWITCH)}
