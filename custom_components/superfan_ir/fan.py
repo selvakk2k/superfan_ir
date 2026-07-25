@@ -168,6 +168,23 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
                 service_data,
                 context=self._context
             )
+        elif self._backend == "ESPHome (Raw API Service)":
+            try:
+                from .utils import decode_tuya_to_raw
+                raw_timings = decode_tuya_to_raw(tuya_b64)
+                
+                # Assume emitter_id contains the ESPHome device name, e.g. "ir_blaster"
+                device_name = self._emitter_id.replace("esphome.", "").strip()
+                service_name = f"{device_name}_transmit_raw" if not device_name.endswith("_transmit_raw") else device_name
+                
+                await self.hass.services.async_call(
+                    "esphome",
+                    service_name,
+                    {"command": raw_timings},
+                    context=self._context
+                )
+            except Exception as e:
+                _LOGGER.error("Failed to send IR command via ESPHome service: %s", e)
         else:
             try:
                 from .utils import decode_tuya_to_raw, RawIRCommand
