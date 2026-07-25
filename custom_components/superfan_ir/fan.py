@@ -8,6 +8,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_platform
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.const import STATE_ON, STATE_OFF
+from homeassistant.core import Event
 
 from .const import DOMAIN, CONF_FAN_MODEL, CONF_BACKEND, CONF_EMITTER_ENTITY_ID, MODEL_T10, MODEL_T12_6, BACKEND_REMOTE, BACKEND_INFRARED, CONF_POWER_SWITCH
 
@@ -39,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         "async_set_timer"
     )
 
-class SuperfanIRNative(FanEntity):
+class SuperfanIRNative(FanEntity, RestoreEntity):
     """Superfan IR Entity."""
 
     _attr_assumed_state = True
@@ -79,6 +83,44 @@ class SuperfanIRNative(FanEntity):
     @property
     def _emitter_id(self) -> str | None:
         return self._entry.options.get(CONF_EMITTER_ENTITY_ID, self._entry.data.get(CONF_EMITTER_ENTITY_ID))
+
+    async def async_added_to_hass(self):
+        """Restore state and listen for switch changes."""
+        await super().async_added_to_hass()
+        
+        # Restore previous state
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._attr_is_on = last_state.state == STATE_ON
+            if "percentage" in last_state.attributes:
+                self._attr_percentage = last_state.attributes["percentage"]
+            if "preset_mode" in last_state.attributes:
+                self._attr_preset_mode = last_state.attributes["preset_mode"]
+
+        # Track power switch changes
+        if self._power_switch:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._power_switch], self._async_switch_changed
+                )
+            )
+
+    async def _async_switch_changed(self, event: Event):
+        """Handle physical power switch state changes."""
+        new_state = event.data.get("new_state")
+        if new_state is None:
+            return
+            
+        if new_state.state == STATE_OFF:
+            self._attr_is_on = False
+            self._attr_percentage = 0
+            self._attr_preset_mode = None
+        elif new_state.state == STATE_ON and not self._attr_is_on:
+            self._attr_is_on = True
+            if not self._attr_percentage:
+                self._attr_percentage = 33 if self._model == MODEL_T12_6 else 20
+                
+        self.async_write_ha_state()
 
     @property
     def _power_switch(self) -> str | None:
