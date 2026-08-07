@@ -70,13 +70,12 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
             )
             self._attr_speed_count = 5
         else:
-            self._attr_preset_modes = ["Breeze Mode", "Speed Adjust", "2hr Timer", "6hr Timer", "Eco Mode", "Wellness Mode", "AC Mix"]
+            self._attr_preset_modes = ["Breeze Mode", "Speed Adjust", "2hr Timer", "6hr Timer", "Eco Mode", "Wellness Mode", "AC Mix", "Reverse Mode"]
             self._attr_supported_features = (
                 FanEntityFeature.SET_SPEED |
                 FanEntityFeature.TURN_ON |
                 FanEntityFeature.TURN_OFF |
-                FanEntityFeature.PRESET_MODE |
-                FanEntityFeature.DIRECTION
+                FanEntityFeature.PRESET_MODE
             )
             self._attr_speed_count = 3
 
@@ -284,15 +283,6 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
         self._attr_percentage = None
         await self._send_ir_command(preset_mode)
         self.async_write_ha_state()
-
-    async def async_set_direction(self, direction: str) -> None:
-        """Set the direction of the fan."""
-        if self._model != MODEL_T12_6:
-            return
-        
-        await self._ensure_power()
-        if direction == "reverse":
-            await self._send_ir_command("Reverse Mode")
 
     async def async_speed_adjust(self) -> None:
         """Cycle speed."""
