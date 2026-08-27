@@ -66,7 +66,15 @@ GOLDMEDAL_PRESET_MODES = [
     "Timer 6 Hours",
 ]
 
-SUPERFAN_PRESET_MODES = [
+SUPERFAN_T10_PRESET_MODES = [
+    "Breeze Mode",
+    "Eco Mode",
+    "Sleep Mode",
+    "2hr Timer",
+    "6hr Timer",
+]
+
+SUPERFAN_T12_6_PRESET_MODES = [
     "Breeze Mode",
     "Eco Mode",
     "Sleep Mode",
@@ -165,12 +173,12 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             brand_name = "Goldmedal Electricals"
         elif self._model == MODEL_T10:
             self._attr_speed_count = 5
-            self._attr_preset_modes = SUPERFAN_PRESET_MODES
+            self._attr_preset_modes = SUPERFAN_T10_PRESET_MODES
             default_pct = 60
             brand_name = "Versa Drives (Superfan)"
         else:
             self._attr_speed_count = 3
-            self._attr_preset_modes = SUPERFAN_PRESET_MODES
+            self._attr_preset_modes = SUPERFAN_T12_6_PRESET_MODES
             default_pct = 66
             brand_name = "Versa Drives (Superfan)"
 
