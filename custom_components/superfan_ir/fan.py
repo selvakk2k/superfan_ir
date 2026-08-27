@@ -331,6 +331,19 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         try:
             fmt = self._ir_format
             emitter = self._emitter_id
+            addr = SuperfanNEC.get_address(self._model)
+            cmd_byte = SuperfanNEC.get_command_byte(code_key, self._model)
+            _LOGGER.info(
+                "[Superfan IR] Dispatching '%s' for model '%s' (Addr=0x%04X, Cmd=0x%02X) via %s (Format=%s)",
+                code_key,
+                self._model,
+                addr,
+                cmd_byte,
+                emitter,
+                fmt,
+            )
+            fmt = self._ir_format
+            emitter = self._emitter_id
 
             if fmt == IR_FORMAT_AUTO:
                 if emitter.startswith("esphome.") or "transmit_raw" in emitter:

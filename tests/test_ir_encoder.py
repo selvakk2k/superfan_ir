@@ -57,7 +57,7 @@ def test_nec_addresses():
 def test_raw_timings_structure():
     for m in [MODEL_T10, MODEL_ATOMBERG, MODEL_ACTIVA, MODEL_ORIENT, MODEL_GOLDMEDAL]:
         timings = SuperfanNEC.get_raw_timings("Power", m)
-        assert len(timings) == 68
+        assert len(timings) == 72
         assert timings[0] == NEC_HDR_MARK
         assert timings[1] == NEC_HDR_SPACE
 

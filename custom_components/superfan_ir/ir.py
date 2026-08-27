@@ -274,7 +274,8 @@ class SuperfanNEC:
         addr = cls.get_address(model)
         inv_cmd = (~cmd_byte) & 0xFF
 
-        bytes_to_send = [addr & 0xFF, (addr >> 8) & 0xFF, cmd_byte, inv_cmd]
+        # Transmit big-endian address bytes [Addr0, Addr1], then Command, then ~Command
+        bytes_to_send = [(addr >> 8) & 0xFF, addr & 0xFF, cmd_byte, inv_cmd]
         timings: list[int] = [NEC_HDR_MARK, NEC_HDR_SPACE]
 
         for b in bytes_to_send:
@@ -283,8 +284,12 @@ class SuperfanNEC:
                 timings.append(NEC_BIT_MARK)
                 timings.append(NEC_ONE_SPACE if bit else NEC_ZERO_SPACE)
 
+        # End bit of main frame + lead-out gap
         timings.append(NEC_BIT_MARK)
-        timings.append(30000)
+        timings.append(42000)
+
+        # NEC Repeat Frame (required for hardware receiver filtering on Superfan & Atomberg ICs)
+        timings.extend([NEC_HDR_MARK, NEC_RPT_SPACE, NEC_BIT_MARK, 30000])
         return timings
 
     @classmethod
