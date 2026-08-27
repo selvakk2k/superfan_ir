@@ -1,4 +1,4 @@
-"""Platform for Superfan & Atomberg fan integration."""
+"""Platform for Superfan & Multi-Brand BLDC Fan integration."""
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +26,10 @@ from .const import (
     IR_FORMAT_RAW,
     IR_FORMAT_TASMOTA,
     IR_FORMAT_TUYA,
+    MODEL_ACTIVA,
     MODEL_ATOMBERG,
+    MODEL_GOLDMEDAL,
+    MODEL_ORIENT,
     MODEL_T10,
     MODEL_T12_6,
 )
@@ -34,25 +37,42 @@ from .ir import SuperfanNEC
 
 _LOGGER = logging.getLogger(__name__)
 
-ATOMBERG_PRESET_MODES = [
-    "Sleep Mode",
-    "Timer",
+ATOMBERG_PRESET_MODES = ["Sleep Mode", "Timer", "LED Light"]
+
+ACTIVA_PRESET_MODES = [
+    "Nature Mode",
+    "Smart Mode",
     "LED Light",
-]
-
-T10_PRESET_MODES = [
-    "Breeze Mode",
-    "Wellness Mode",
     "Reverse Mode",
-    "AC Mix",
-    "Speed Adjust",
-    "2 Hour Timer",
-    "6 Hour Timer",
+    "Timer 2 Hours",
+    "Timer 4 Hours",
+    "Timer 8 Hours",
 ]
 
-T12_PRESET_MODES = [
+ORIENT_PRESET_MODES = [
+    "LED Light",
+    "Speed Adjust",
+    "Timer 2 Hours",
+    "Timer 4 Hours",
+    "Timer 6 Hours",
+]
+
+GOLDMEDAL_PRESET_MODES = [
+    "Sleep Mode",
+    "LED Light",
+    "Timer 1 Hour",
+    "Timer 2 Hours",
+    "Timer 3 Hours",
+    "Timer 6 Hours",
+]
+
+SUPERFAN_PRESET_MODES = [
+    "Breeze Mode",
     "Eco Mode",
     "Sleep Mode",
+    "Reverse Mode",
+    "Wellness Mode",
+    "AC Mix",
     "Speed Adjust",
     "2hr Timer",
     "6hr Timer",
@@ -90,7 +110,7 @@ async def async_setup_entry(
 
 
 class SuperfanEntity(FanEntity, RestoreEntity):
-    """Representation of a Superfan or Atomberg Ceiling Fan."""
+    """Representation of a Superfan or Multi-Brand Indian BLDC Fan."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -109,7 +129,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         ir_format: str = IR_FORMAT_AUTO,
         receiver_id: str | None = None,
         power_switch: str | None = None,
-        backend: str | None = None,  # Backward compatibility
+        backend: str | None = None,
     ) -> None:
         """Initialize the fan."""
         self._entry = entry
@@ -120,30 +140,46 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         self._power_switch = power_switch
 
         self._attr_unique_id = f"{entry.entry_id}_fan"
-        self._attr_name = entry.title
+        self._attr_name = None
 
-        # Determine speed count and preset modes based on model
+        # Determine speed count, brand name, presets based on model
         if self._model == MODEL_ATOMBERG:
             self._attr_speed_count = 6
             self._attr_preset_modes = ATOMBERG_PRESET_MODES
             default_pct = 50
+            brand_name = "Atomberg"
+        elif self._model == MODEL_ACTIVA:
+            self._attr_speed_count = 6
+            self._attr_preset_modes = ACTIVA_PRESET_MODES
+            default_pct = 50
+            brand_name = "Activa Appliances"
+        elif self._model == MODEL_ORIENT:
+            self._attr_speed_count = 5
+            self._attr_preset_modes = ORIENT_PRESET_MODES
+            default_pct = 60
+            brand_name = "Orient Electric"
+        elif self._model == MODEL_GOLDMEDAL:
+            self._attr_speed_count = 5
+            self._attr_preset_modes = GOLDMEDAL_PRESET_MODES
+            default_pct = 60
+            brand_name = "Goldmedal Electricals"
         elif self._model == MODEL_T10:
             self._attr_speed_count = 5
-            self._attr_preset_modes = T10_PRESET_MODES
+            self._attr_preset_modes = SUPERFAN_PRESET_MODES
             default_pct = 60
+            brand_name = "Versa Drives (Superfan)"
         else:
             self._attr_speed_count = 3
-            self._attr_preset_modes = T12_PRESET_MODES
+            self._attr_preset_modes = SUPERFAN_PRESET_MODES
             default_pct = 66
+            brand_name = "Versa Drives (Superfan)"
 
-        # State tracking and memory retention
         self._attr_is_on: bool = False
         self._attr_percentage: int | None = 0
         self._attr_preset_mode: str | None = None
         self._last_percentage: int = default_pct
         self._last_preset_mode: str | None = None
 
-        brand_name = "Atomberg" if self._model == MODEL_ATOMBERG else "Versa Drives (Superfan)"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": entry.title,
@@ -155,7 +191,6 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         """Restore state and register event listeners."""
         await super().async_added_to_hass()
 
-        # Restore last known state from storage
         last_state = await self.async_get_last_state()
         if last_state:
             self._attr_is_on = last_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, "off")
@@ -170,7 +205,6 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 self._attr_percentage = 0
                 self._attr_preset_mode = None
 
-        # Track external smart switch power changes
         if self._power_switch:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -178,7 +212,6 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 )
             )
 
-        # Track incoming IR receiver signals
         if self._receiver_id:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -193,6 +226,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return
 
+        self._notify_control_source("Mains Switch")
         if new_state.state == "off":
             self._attr_is_on = False
             self._attr_percentage = 0
@@ -212,7 +246,6 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
         raw_val = new_state.state.strip()
         try:
-            # Handle standard hex formats like 0x00DF9867 or 0xF3006E91 or 0x98
             if raw_val.startswith("0x") and len(raw_val) >= 8:
                 nec_val = int(raw_val, 16)
                 addr = (nec_val >> 16) & 0xFFFF
@@ -228,6 +261,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 return
 
             _LOGGER.debug("Physical IR remote pressed for %s: %s", self._model, action)
+            self._notify_control_source("Physical IR Remote")
             if action == "Power":
                 self._attr_is_on = not self._attr_is_on
                 if self._attr_is_on:
@@ -235,6 +269,13 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 else:
                     self._attr_percentage = 0
                     self._attr_preset_mode = None
+            elif action == "Power On":
+                self._attr_is_on = True
+                self._attr_percentage = self._last_percentage
+            elif action == "Power Off":
+                self._attr_is_on = False
+                self._attr_percentage = 0
+                self._attr_preset_mode = None
             elif action in ("Low", "Medium", "High", "1", "2", "3", "4", "5", "6", "Boost"):
                 self._attr_is_on = True
                 pct = self._map_speed_to_percentage(action)
@@ -252,12 +293,12 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             _LOGGER.debug("Error processing IR receiver signal '%s': %s", raw_val, err)
 
     def _map_speed_to_percentage(self, speed_key: str) -> int:
-        if self._model == MODEL_ATOMBERG:
-            map_atomberg = {"1": 17, "2": 33, "3": 50, "4": 67, "5": 83, "6": 100, "Boost": 100}
-            return map_atomberg.get(speed_key, 50)
-        if self._model == MODEL_T10:
-            map_t10 = {"1": 20, "2": 40, "3": 60, "4": 80, "5": 100}
-            return map_t10.get(speed_key, 60)
+        if self._model in (MODEL_ATOMBERG, MODEL_ACTIVA):
+            map_6 = {"1": 17, "2": 33, "3": 50, "4": 67, "5": 83, "6": 100, "Boost": 100}
+            return map_6.get(speed_key, 50)
+        if self._model in (MODEL_T10, MODEL_ORIENT, MODEL_GOLDMEDAL):
+            map_5 = {"1": 20, "2": 40, "3": 60, "4": 80, "5": 100, "Boost": 100}
+            return map_5.get(speed_key, 60)
         map_t12 = {"Low": 33, "Medium": 66, "High": 100}
         return map_t12.get(speed_key, 66)
 
@@ -270,24 +311,27 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         if switch_state and switch_state.state == "on":
             return
 
-        # Turn on the smart switch
         await self.hass.services.async_call(
             "switch",
             "turn_on",
             {"entity_id": self._power_switch},
             context=self._context,
         )
-
-        # 2-second delay for the fan microcontroller to boot
         await asyncio.sleep(2.0)
+
+    def _notify_control_source(self, source: str) -> None:
+        """Update shared last controlled via sensor."""
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        if entry_data and hasattr(entry_data, "set_last_controlled_via"):
+            entry_data.set_last_controlled_via(source)
 
     async def _send_ir_command(self, code_key: str) -> None:
         """Send IR command using the configured format and transport backend."""
+        self._notify_control_source("Home Assistant")
         try:
             fmt = self._ir_format
             emitter = self._emitter_id
 
-            # Auto-detection logic (identical to MirAIe AC)
             if fmt == IR_FORMAT_AUTO:
                 if emitter.startswith("esphome.") or "transmit_raw" in emitter:
                     fmt = IR_FORMAT_RAW
@@ -374,7 +418,8 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         await self._ensure_power()
 
         if percentage is None and preset_mode is None:
-            await self._send_ir_command("Power")
+            cmd = "Power On" if self._model == MODEL_ORIENT else "Power"
+            await self._send_ir_command(cmd)
             self._attr_is_on = True
             self._attr_percentage = self._last_percentage
             self._attr_preset_mode = self._last_preset_mode
@@ -395,7 +440,8 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 context=self._context,
             )
         else:
-            await self._send_ir_command("Power")
+            cmd = "Power Off" if self._model == MODEL_ORIENT else "Power"
+            await self._send_ir_command(cmd)
 
         self._attr_is_on = False
         self._attr_percentage = 0
@@ -415,37 +461,23 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         self._attr_preset_mode = None
         self._last_preset_mode = None
 
-        if self._model == MODEL_ATOMBERG:
-            if percentage <= 17:
-                key = "1"
-            elif percentage <= 34:
-                key = "2"
-            elif percentage <= 50:
-                key = "3"
-            elif percentage <= 67:
-                key = "4"
-            elif percentage <= 84:
-                key = "5"
-            else:
-                key = "Boost"
-        elif self._model == MODEL_T10:
-            if percentage <= 20:
-                key = "1"
-            elif percentage <= 40:
-                key = "2"
-            elif percentage <= 60:
-                key = "3"
-            elif percentage <= 80:
-                key = "4"
-            else:
-                key = "5"
+        if self._model in (MODEL_ATOMBERG, MODEL_ACTIVA):
+            if percentage <= 17: key = "1"
+            elif percentage <= 34: key = "2"
+            elif percentage <= 50: key = "3"
+            elif percentage <= 67: key = "4"
+            elif percentage <= 84: key = "5"
+            else: key = "6" if self._model == MODEL_ACTIVA else "Boost"
+        elif self._model in (MODEL_T10, MODEL_ORIENT, MODEL_GOLDMEDAL):
+            if percentage <= 20: key = "1"
+            elif percentage <= 40: key = "2"
+            elif percentage <= 60: key = "3"
+            elif percentage <= 80: key = "4"
+            else: key = "5"
         else:
-            if percentage <= 33:
-                key = "Low"
-            elif percentage <= 66:
-                key = "Medium"
-            else:
-                key = "High"
+            if percentage <= 33: key = "Low"
+            elif percentage <= 66: key = "Medium"
+            else: key = "High"
 
         await self._send_ir_command(key)
         self.async_write_ha_state()
@@ -466,18 +498,31 @@ class SuperfanEntity(FanEntity, RestoreEntity):
     async def async_speed_adjust(self) -> None:
         """Cycle speed."""
         await self._ensure_power()
-        if self._model == MODEL_ATOMBERG:
+        if self._model in (MODEL_ATOMBERG, MODEL_ACTIVA):
             current_pct = self._attr_percentage or self._last_percentage
             next_pct = 17 if current_pct >= 100 else current_pct + 17
             await self.async_set_percentage(next_pct)
-        else:
+        elif self._model in (MODEL_ORIENT, MODEL_T10):
             await self._send_ir_command("Speed Adjust")
+        else:
+            current_pct = self._attr_percentage or self._last_percentage
+            next_pct = 20 if current_pct >= 100 else current_pct + 20
+            await self.async_set_percentage(next_pct)
 
     async def async_set_timer(self, duration: int) -> None:
         """Set the timer."""
         await self._ensure_power()
         if self._model == MODEL_ATOMBERG:
             await self._send_ir_command("Timer")
+        elif self._model == MODEL_ACTIVA:
+            key = f"Timer {duration} Hours"
+            await self._send_ir_command(key)
+        elif self._model == MODEL_ORIENT:
+            key = f"Timer {duration} Hours"
+            await self._send_ir_command(key)
+        elif self._model == MODEL_GOLDMEDAL:
+            key = f"Timer {duration} Hour" if duration == 1 else f"Timer {duration} Hours"
+            await self._send_ir_command(key)
         elif duration == 2:
             key = "2hr Timer" if self._model == MODEL_T12_6 else "2 Hour Timer"
             await self._send_ir_command(key)

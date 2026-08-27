@@ -1,4 +1,4 @@
-"""Constants for the Superfan IR Native integration."""
+"""Constants for the Superfan & Multi-Brand BLDC Fan IR integration."""
 
 DOMAIN = "superfan_ir"
 
@@ -12,11 +12,17 @@ CONF_POWER_SWITCH = "power_switch"
 MODEL_T10 = "SuperfanT10"
 MODEL_T12_6 = "SuperfanT12/6"
 MODEL_ATOMBERG = "Atomberg"
+MODEL_ACTIVA = "Activa"
+MODEL_ORIENT = "Orient"
+MODEL_GOLDMEDAL = "Goldmedal"
 
 MODEL_OPTIONS = {
-    MODEL_T10: "Superfan T10 Remote (Models: Super X, A, V, J, P, Visree T6 & P6)",
-    MODEL_T12_6: "Superfan T12/6 Remote (Models: Super Q Series)",
-    MODEL_ATOMBERG: "Atomberg BLDC Remote (Models: Renesa, Efficio, Aris, Studio, etc.)",
+    MODEL_ATOMBERG: "Atomberg BLDC (Renesa, Efficio, Aris, Studio, Erica Series)",
+    MODEL_T10: "Superfan T10 (Super X, A, V, J, P, Visree Series)",
+    MODEL_T12_6: "Superfan T12/6 (Super Q Series)",
+    MODEL_ACTIVA: "Activa BLDC (Gracia, Energia, Apsara Series)",
+    MODEL_ORIENT: "Orient BLDC (I-Tome, Aeroslim, Wendy, Ecotech Series)",
+    MODEL_GOLDMEDAL: "Goldmedal BLDC (Opus Prime, Winzo, Spacio, Aura Lux Series)",
 }
 
 FAN_MODELS = list(MODEL_OPTIONS.keys())

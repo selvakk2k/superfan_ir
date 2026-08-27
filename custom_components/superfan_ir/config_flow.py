@@ -1,4 +1,4 @@
-"""Config flow and Options flow for Superfan & Atomberg fan integration."""
+"""Config flow and Options flow for Indian BLDC IR Fan integration."""
 from __future__ import annotations
 
 from typing import Any
@@ -22,8 +22,8 @@ from .const import (
     DOMAIN,
     IR_FORMAT_AUTO,
     IR_FORMAT_OPTIONS,
+    MODEL_ATOMBERG,
     MODEL_OPTIONS,
-    MODEL_T10,
 )
 
 
@@ -48,7 +48,7 @@ def _get_ir_format_select_options() -> list[selector.SelectOptionDict]:
 
 
 class SuperfanConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Superfan & Atomberg fan integration."""
+    """Handle a config flow for Indian BLDC fan IR integration."""
 
     VERSION = 1
 
@@ -70,7 +70,7 @@ class SuperfanConfigFlow(ConfigFlow, domain=DOMAIN):
             vol.Required("name", default="Living Room Fan"): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
-            vol.Required(CONF_FAN_MODEL, default=MODEL_T10): selector.SelectSelector(
+            vol.Required(CONF_FAN_MODEL, default=MODEL_ATOMBERG): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=_get_model_select_options(),
                     mode=selector.SelectSelectorMode.DROPDOWN,
@@ -127,7 +127,7 @@ class SuperfanConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class SuperfanOptionsFlow(OptionsFlow):
-    """Handle options for Superfan & Atomberg fans."""
+    """Handle options for Indian BLDC fans."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize options flow."""
@@ -142,7 +142,7 @@ class SuperfanOptionsFlow(OptionsFlow):
 
         current_model = self._config_entry.options.get(
             CONF_FAN_MODEL,
-            self._config_entry.data.get(CONF_FAN_MODEL, MODEL_T10),
+            self._config_entry.data.get(CONF_FAN_MODEL, MODEL_ATOMBERG),
         )
         current_fmt = self._config_entry.options.get(
             CONF_IR_FORMAT,
@@ -178,7 +178,7 @@ class SuperfanOptionsFlow(OptionsFlow):
                 selector.EntitySelectorConfig(domain=["infrared", "remote"])
             ),
             vol.Optional(CONF_RECEIVER_ENTITY_ID): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["sensor", "remote"])
+                selector.EntitySelectorConfig(domain=["infrared", "remote"])
             ),
             vol.Optional(CONF_POWER_SWITCH): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
