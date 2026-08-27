@@ -1,0 +1,75 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "BLDC Fan IR Setup",
+        "description": "Configure your fan model and preferred IR transmission format.",
+        "data": {
+          "name": "Fan Name",
+          "fan_model": "Remote Model",
+          "ir_format": "IR Format"
+        },
+        "data_description": {
+          "name": "Friendly name for this fan entity (e.g. Living Room Fan).",
+          "fan_model": "Select your fan remote model (Superfan T10, T12/6, or Atomberg).",
+          "ir_format": "Select the IR signal format matching your hardware blaster."
+        }
+      },
+      "emitter": {
+        "title": "Select IR Transmitter",
+        "description": "Choose the IR Transmitter entity to send commands to **{name}**.",
+        "data": {
+          "emitter_entity_id": "IR Transmitter Entity"
+        },
+        "data_description": {
+          "emitter_entity_id": "Entity ID of the IR blaster (infrared.* or remote.*)."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Fan Options",
+        "description": "Adjust remote model, transmission format, transmitter entity, optional physical remote receiver, and smart switch power interlock.",
+        "data": {
+          "fan_model": "Remote Model",
+          "ir_format": "IR Format",
+          "emitter_entity_id": "IR Transmitter Entity",
+          "receiver_entity_id": "IR Receiver Entity (Optional)",
+          "power_switch": "Power Switch Entity (Optional)"
+        },
+        "data_description": {
+          "fan_model": "Change or adjust your fan remote model.",
+          "ir_format": "Change the IR signal encoding format.",
+          "emitter_entity_id": "Entity ID of your IR blaster or remote.",
+          "receiver_entity_id": "Optional sensor/remote entity receiving physical IR remote clicks for state synchronization.",
+          "power_switch": "Optional smart plug or relay controlling mains power to the fan."
+        }
+      }
+    }
+  },
+  "services": {
+    "speed_adjust": {
+      "name": "Speed Adjust",
+      "description": "Cycles to the next speed setting or fine-tunes speed tier."
+    },
+    "set_timer": {
+      "name": "Set Timer",
+      "description": "Activates a hardware sleep timer on the fan.",
+      "fields": {
+        "duration": {
+          "name": "Duration",
+          "description": "Timer duration in hours (2 or 6)."
+        }
+      }
+    }
+  }
+}

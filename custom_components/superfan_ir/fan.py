@@ -1,129 +1,265 @@
+"""Platform for Superfan & Atomberg fan integration."""
+from __future__ import annotations
+
 import asyncio
 import logging
 from typing import Any
-import voluptuous as vol
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_platform
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.const import STATE_ON, STATE_OFF
-from homeassistant.core import Event
+from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, CONF_FAN_MODEL, CONF_BACKEND, CONF_EMITTER_ENTITY_ID, MODEL_T10, MODEL_T12_6, BACKEND_REMOTE, BACKEND_INFRARED, CONF_POWER_SWITCH
+from .const import (
+    CONF_EMITTER_ENTITY_ID,
+    CONF_FAN_MODEL,
+    CONF_IR_FORMAT,
+    CONF_POWER_SWITCH,
+    CONF_RECEIVER_ENTITY_ID,
+    DOMAIN,
+    IR_FORMAT_AUTO,
+    IR_FORMAT_BROADLINK,
+    IR_FORMAT_PRONTO,
+    IR_FORMAT_RAW,
+    IR_FORMAT_TASMOTA,
+    IR_FORMAT_TUYA,
+    MODEL_ATOMBERG,
+    MODEL_T10,
+    MODEL_T12_6,
+)
+from .ir import SuperfanNEC
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
-    """Set up the Superfan from a config entry."""
-    codes = hass.data[DOMAIN].get("codes", {})
-    model = entry.data.get(CONF_FAN_MODEL)
-    backend = entry.data.get(CONF_BACKEND)
-    
-    model_codes = codes.get(model, {})
-    
-    async_add_entities([SuperfanIRNative(entry, model, backend, model_codes)])
-    
-    platform = entity_platform.async_get_current_platform()
-    
-    platform.async_register_entity_service(
-        "speed_adjust",
-        {},
-        "async_speed_adjust"
+ATOMBERG_PRESET_MODES = [
+    "Sleep Mode",
+    "Timer",
+    "LED Light",
+]
+
+T10_PRESET_MODES = [
+    "Breeze Mode",
+    "Wellness Mode",
+    "Reverse Mode",
+    "AC Mix",
+    "Speed Adjust",
+    "2 Hour Timer",
+    "6 Hour Timer",
+]
+
+T12_PRESET_MODES = [
+    "Eco Mode",
+    "Sleep Mode",
+    "Speed Adjust",
+    "2hr Timer",
+    "6hr Timer",
+]
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the Fan from a config entry."""
+    fan_model = entry.options.get(CONF_FAN_MODEL, entry.data.get(CONF_FAN_MODEL, MODEL_T10))
+    ir_format = entry.options.get(CONF_IR_FORMAT, entry.data.get(CONF_IR_FORMAT, IR_FORMAT_AUTO))
+    emitter_id = entry.options.get(
+        CONF_EMITTER_ENTITY_ID, entry.data.get(CONF_EMITTER_ENTITY_ID)
     )
-    
-    platform.async_register_entity_service(
-        "set_timer",
-        {
-            vol.Required("duration"): vol.In([2, 6])
-        },
-        "async_set_timer"
+    receiver_id = entry.options.get(
+        CONF_RECEIVER_ENTITY_ID, entry.data.get(CONF_RECEIVER_ENTITY_ID)
+    )
+    power_switch = entry.options.get(
+        CONF_POWER_SWITCH, entry.data.get(CONF_POWER_SWITCH)
     )
 
-class SuperfanIRNative(FanEntity, RestoreEntity):
-    """Superfan IR Entity."""
+    async_add_entities([
+        SuperfanEntity(
+            entry=entry,
+            fan_model=fan_model,
+            ir_format=ir_format,
+            emitter_id=emitter_id,
+            receiver_id=receiver_id,
+            power_switch=power_switch,
+        )
+    ])
 
-    _attr_assumed_state = True
 
-    def __init__(self, entry: ConfigEntry, model: str, backend: str, codes: dict):
+class SuperfanEntity(FanEntity, RestoreEntity):
+    """Representation of a Superfan or Atomberg Ceiling Fan."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_supported_features = (
+        FanEntityFeature.SET_SPEED
+        | FanEntityFeature.PRESET_MODE
+        | FanEntityFeature.TURN_OFF
+        | FanEntityFeature.TURN_ON
+    )
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        fan_model: str,
+        emitter_id: str,
+        ir_format: str = IR_FORMAT_AUTO,
+        receiver_id: str | None = None,
+        power_switch: str | None = None,
+        backend: str | None = None,  # Backward compatibility
+    ) -> None:
+        """Initialize the fan."""
         self._entry = entry
+        self._model = fan_model
+        self._ir_format = ir_format
+        self._emitter_id = emitter_id
+        self._receiver_id = receiver_id
+        self._power_switch = power_switch
+
+        self._attr_unique_id = f"{entry.entry_id}_fan"
         self._attr_name = entry.title
-        self._attr_unique_id = entry.entry_id
-        self._model = model
-        self._backend = backend
-        self._codes = codes
-        
-        self._attr_is_on = False
-        self._attr_percentage = None
-        self._attr_preset_mode = None
-        
-        if self._model == MODEL_T10:
-            self._attr_preset_modes = ["Breeze Mode", "Speed Adjust", "2 Hour Timer", "6 Hour Timer"]
-            self._attr_supported_features = (
-                FanEntityFeature.SET_SPEED |
-                FanEntityFeature.TURN_ON |
-                FanEntityFeature.TURN_OFF |
-                FanEntityFeature.PRESET_MODE
-            )
+
+        # Determine speed count and preset modes based on model
+        if self._model == MODEL_ATOMBERG:
+            self._attr_speed_count = 6
+            self._attr_preset_modes = ATOMBERG_PRESET_MODES
+            default_pct = 50
+        elif self._model == MODEL_T10:
             self._attr_speed_count = 5
+            self._attr_preset_modes = T10_PRESET_MODES
+            default_pct = 60
         else:
-            self._attr_preset_modes = ["Breeze Mode", "Speed Adjust", "2hr Timer", "6hr Timer", "Eco Mode", "Wellness Mode", "AC Mix", "Reverse Mode"]
-            self._attr_supported_features = (
-                FanEntityFeature.SET_SPEED |
-                FanEntityFeature.TURN_ON |
-                FanEntityFeature.TURN_OFF |
-                FanEntityFeature.PRESET_MODE
-            )
             self._attr_speed_count = 3
+            self._attr_preset_modes = T12_PRESET_MODES
+            default_pct = 66
 
-    @property
-    def _emitter_id(self) -> str | None:
-        return self._entry.options.get(CONF_EMITTER_ENTITY_ID, self._entry.data.get(CONF_EMITTER_ENTITY_ID))
+        # State tracking and memory retention
+        self._attr_is_on: bool = False
+        self._attr_percentage: int | None = 0
+        self._attr_preset_mode: str | None = None
+        self._last_percentage: int = default_pct
+        self._last_preset_mode: str | None = None
 
-    async def async_added_to_hass(self):
-        """Restore state and listen for switch changes."""
+        brand_name = "Atomberg" if self._model == MODEL_ATOMBERG else "Versa Drives (Superfan)"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": entry.title,
+            "manufacturer": brand_name,
+            "model": fan_model,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state and register event listeners."""
         await super().async_added_to_hass()
-        
-        # Restore previous state
-        last_state = await self.async_get_last_state()
-        if last_state is not None:
-            self._attr_is_on = last_state.state == STATE_ON
-            if "percentage" in last_state.attributes:
-                self._attr_percentage = last_state.attributes["percentage"]
-            if "preset_mode" in last_state.attributes:
-                self._attr_preset_mode = last_state.attributes["preset_mode"]
 
-        # Track power switch changes
+        # Restore last known state from storage
+        last_state = await self.async_get_last_state()
+        if last_state:
+            self._attr_is_on = last_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, "off")
+            if self._attr_is_on:
+                self._attr_percentage = last_state.attributes.get("percentage", self._last_percentage)
+                self._attr_preset_mode = last_state.attributes.get("preset_mode")
+                if self._attr_percentage and self._attr_percentage > 0:
+                    self._last_percentage = self._attr_percentage
+                if self._attr_preset_mode:
+                    self._last_preset_mode = self._attr_preset_mode
+            else:
+                self._attr_percentage = 0
+                self._attr_preset_mode = None
+
+        # Track external smart switch power changes
         if self._power_switch:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [self._power_switch], self._async_switch_changed
+                    self.hass, [self._power_switch], self._async_switch_state_changed
                 )
             )
 
-    async def _async_switch_changed(self, event: Event):
-        """Handle physical power switch state changes."""
+        # Track incoming IR receiver signals
+        if self._receiver_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._receiver_id], self._async_receiver_event
+                )
+            )
+
+    @callback
+    def _async_switch_state_changed(self, event: Event) -> None:
+        """Handle power switch state updates."""
         new_state = event.data.get("new_state")
-        if new_state is None:
+        if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return
-            
-        if new_state.state == STATE_OFF:
+
+        if new_state.state == "off":
             self._attr_is_on = False
             self._attr_percentage = 0
             self._attr_preset_mode = None
-        elif new_state.state == STATE_ON and not self._attr_is_on:
+        elif new_state.state == "on" and not self._attr_is_on:
             self._attr_is_on = True
-            if not self._attr_percentage:
-                self._attr_percentage = 33 if self._model == MODEL_T12_6 else 20
-                
+            self._attr_percentage = self._last_percentage
+            self._attr_preset_mode = self._last_preset_mode
+
         self.async_write_ha_state()
 
-    @property
-    def _power_switch(self) -> str | None:
-        return self._entry.options.get(CONF_POWER_SWITCH)
+    async def _async_receiver_event(self, event: Event) -> None:
+        """Decode incoming IR signal from receiver entity."""
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return
+
+        raw_val = new_state.state.strip()
+        try:
+            # Handle standard hex formats like 0x00DF9867 or 0xF3006E91 or 0x98
+            if raw_val.startswith("0x") and len(raw_val) >= 8:
+                nec_val = int(raw_val, 16)
+                addr = (nec_val >> 16) & 0xFFFF
+                cmd = (nec_val >> 8) & 0xFF
+            elif raw_val.startswith("0x"):
+                addr = SuperfanNEC.get_address(self._model)
+                cmd = int(raw_val, 16)
+            else:
+                return
+
+            action = SuperfanNEC.decode_nec(addr, cmd)
+            if not action:
+                return
+
+            _LOGGER.debug("Physical IR remote pressed for %s: %s", self._model, action)
+            if action == "Power":
+                self._attr_is_on = not self._attr_is_on
+                if self._attr_is_on:
+                    self._attr_percentage = self._last_percentage
+                else:
+                    self._attr_percentage = 0
+                    self._attr_preset_mode = None
+            elif action in ("Low", "Medium", "High", "1", "2", "3", "4", "5", "6", "Boost"):
+                self._attr_is_on = True
+                pct = self._map_speed_to_percentage(action)
+                self._attr_percentage = pct
+                self._last_percentage = pct
+                self._attr_preset_mode = None
+            elif action in self._attr_preset_modes:
+                self._attr_is_on = True
+                self._attr_preset_mode = action
+                self._last_preset_mode = action
+                self._attr_percentage = None
+
+            self.async_write_ha_state()
+        except Exception as err:
+            _LOGGER.debug("Error processing IR receiver signal '%s': %s", raw_val, err)
+
+    def _map_speed_to_percentage(self, speed_key: str) -> int:
+        if self._model == MODEL_ATOMBERG:
+            map_atomberg = {"1": 17, "2": 33, "3": 50, "4": 67, "5": 83, "6": 100, "Boost": 100}
+            return map_atomberg.get(speed_key, 50)
+        if self._model == MODEL_T10:
+            map_t10 = {"1": 20, "2": 40, "3": 60, "4": 80, "5": 100}
+            return map_t10.get(speed_key, 60)
+        map_t12 = {"Low": 33, "Medium": 66, "High": 100}
+        return map_t12.get(speed_key, 66)
 
     async def _ensure_power(self) -> None:
         """Ensure the power switch is turned on before sending an IR command."""
@@ -139,65 +275,94 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
             "switch",
             "turn_on",
             {"entity_id": self._power_switch},
-            context=self._context
+            context=self._context,
         )
-        
-        # We assume a 2-second delay is needed for the fan's board to boot up and accept IR commands.
+
+        # 2-second delay for the fan microcontroller to boot
         await asyncio.sleep(2.0)
 
-    async def _send_ir_command(self, code_key: str):
-        """Send IR command using the appropriate backend."""
-        tuya_b64 = self._codes.get(code_key)
-        if not tuya_b64:
-            _LOGGER.error("Code not found for key: %s", code_key)
-            return
+    async def _send_ir_command(self, code_key: str) -> None:
+        """Send IR command using the configured format and transport backend."""
+        try:
+            fmt = self._ir_format
+            emitter = self._emitter_id
 
-        payload = tuya_b64 if tuya_b64.startswith("b64:") else f"b64:{tuya_b64}"
+            # Auto-detection logic (identical to MirAIe AC)
+            if fmt == IR_FORMAT_AUTO:
+                if emitter.startswith("esphome.") or "transmit_raw" in emitter:
+                    fmt = IR_FORMAT_RAW
+                elif emitter.startswith("remote."):
+                    fmt = IR_FORMAT_BROADLINK
+                else:
+                    fmt = IR_FORMAT_RAW
 
-        if self._backend == BACKEND_REMOTE:
-            domain = "remote"
-            service = "send_command"
-            service_data = {
-                "entity_id": self._emitter_id,
-                "command": [payload],
-            }
-            await self.hass.services.async_call(
-                domain,
-                service,
-                service_data,
-                context=self._context
-            )
-        elif self._backend == "ESPHome (Raw API Service)":
-            try:
-                from .utils import decode_tuya_to_raw
-                raw_timings = decode_tuya_to_raw(tuya_b64)
-                
-                # ESPHome transmit_raw expects positive (pulse) and negative (space) integers
-                esphome_timings = [t if i % 2 == 0 else -t for i, t in enumerate(raw_timings)]
-                
-                # Assume emitter_id contains the ESPHome device name, e.g. "ir_blaster"
-                device_name = self._emitter_id.replace("esphome.", "").strip()
-                service_name = f"{device_name}_transmit_raw" if not device_name.endswith("_transmit_raw") else device_name
-                
+            if fmt == IR_FORMAT_RAW and (emitter.startswith("esphome.") or "transmit_raw" in emitter):
+                esphome_timings = SuperfanNEC.get_esphome_timings(code_key, self._model)
+                device_name = emitter.replace("esphome.", "").strip()
+                service_name = (
+                    f"{device_name}_transmit_raw"
+                    if not device_name.endswith("_transmit_raw")
+                    else device_name
+                )
                 await self.hass.services.async_call(
                     "esphome",
                     service_name,
                     {"command": esphome_timings},
-                    context=self._context
+                    context=self._context,
                 )
-            except Exception as e:
-                _LOGGER.error("Failed to send IR command via ESPHome service: %s", e)
-        else:
-            try:
-                from .utils import decode_tuya_to_raw, RawIRCommand
+            elif fmt == IR_FORMAT_BROADLINK:
+                payload = SuperfanNEC.get_broadlink_base64(code_key, self._model)
+                await self.hass.services.async_call(
+                    "remote",
+                    "send_command",
+                    {
+                        "entity_id": emitter,
+                        "command": [f"b64:{payload}" if not payload.startswith("b64:") else payload],
+                    },
+                    context=self._context,
+                )
+            elif fmt == IR_FORMAT_TUYA:
+                payload = SuperfanNEC.get_tuya_base64(code_key, self._model)
+                await self.hass.services.async_call(
+                    "remote",
+                    "send_command",
+                    {
+                        "entity_id": emitter,
+                        "command": [payload],
+                    },
+                    context=self._context,
+                )
+            elif fmt == IR_FORMAT_PRONTO:
+                pronto_payload = SuperfanNEC.get_pronto_hex(code_key, self._model)
+                await self.hass.services.async_call(
+                    "remote",
+                    "send_command",
+                    {
+                        "entity_id": emitter,
+                        "command": [pronto_payload],
+                    },
+                    context=self._context,
+                )
+            elif fmt == IR_FORMAT_TASMOTA:
+                tasmota_payload = SuperfanNEC.get_tasmota_payload(code_key, self._model)
+                await self.hass.services.async_call(
+                    "remote",
+                    "send_command",
+                    {
+                        "entity_id": emitter,
+                        "command": [tasmota_payload["Data"]],
+                    },
+                    context=self._context,
+                )
+            else:
+                from .utils import RawIRCommand
                 from homeassistant.components.infrared.helpers import async_send_command
-                
-                raw_timings = decode_tuya_to_raw(tuya_b64)
+
+                raw_timings = SuperfanNEC.get_raw_timings(code_key, self._model)
                 command = RawIRCommand(raw_timings)
-                
-                await async_send_command(self.hass, self._emitter_id, command)
-            except Exception as e:
-                _LOGGER.error("Failed to send IR command via native infrared: %s", e)
+                await async_send_command(self.hass, emitter, command)
+        except Exception as err:
+            _LOGGER.error("Failed to dispatch IR command (%s) for %s: %s", code_key, self._model, err)
 
     async def async_turn_on(
         self,
@@ -207,33 +372,31 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
     ) -> None:
         """Turn on the fan."""
         await self._ensure_power()
-        
+
         if percentage is None and preset_mode is None:
             await self._send_ir_command("Power")
             self._attr_is_on = True
-            # HA requires a non-zero percentage when on. Default to a valid low speed if 0.
-            if not self._attr_percentage:
-                self._attr_percentage = 33 if self._model == MODEL_T12_6 else 20
+            self._attr_percentage = self._last_percentage
+            self._attr_preset_mode = self._last_preset_mode
         if percentage is not None:
             await self.async_set_percentage(percentage)
         if preset_mode is not None:
             await self.async_set_preset_mode(preset_mode)
-            
+
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the fan."""
         if self._power_switch:
-            # User specified to only turn off the smart switch, not the actual fan via IR
             await self.hass.services.async_call(
                 "switch",
                 "turn_off",
                 {"entity_id": self._power_switch},
-                context=self._context
+                context=self._context,
             )
         else:
             await self._send_ir_command("Power")
-            
+
         self._attr_is_on = False
         self._attr_percentage = 0
         self._attr_preset_mode = None
@@ -248,9 +411,24 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
         await self._ensure_power()
         self._attr_is_on = True
         self._attr_percentage = percentage
+        self._last_percentage = percentage
         self._attr_preset_mode = None
+        self._last_preset_mode = None
 
-        if self._model == MODEL_T10:
+        if self._model == MODEL_ATOMBERG:
+            if percentage <= 17:
+                key = "1"
+            elif percentage <= 34:
+                key = "2"
+            elif percentage <= 50:
+                key = "3"
+            elif percentage <= 67:
+                key = "4"
+            elif percentage <= 84:
+                key = "5"
+            else:
+                key = "Boost"
+        elif self._model == MODEL_T10:
             if percentage <= 20:
                 key = "1"
             elif percentage <= 40:
@@ -276,10 +454,11 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
         """Set new preset mode."""
         if preset_mode not in self._attr_preset_modes:
             return
-            
+
         await self._ensure_power()
         self._attr_is_on = True
         self._attr_preset_mode = preset_mode
+        self._last_preset_mode = preset_mode
         self._attr_percentage = None
         await self._send_ir_command(preset_mode)
         self.async_write_ha_state()
@@ -287,12 +466,19 @@ class SuperfanIRNative(FanEntity, RestoreEntity):
     async def async_speed_adjust(self) -> None:
         """Cycle speed."""
         await self._ensure_power()
-        await self._send_ir_command("Speed Adjust")
+        if self._model == MODEL_ATOMBERG:
+            current_pct = self._attr_percentage or self._last_percentage
+            next_pct = 17 if current_pct >= 100 else current_pct + 17
+            await self.async_set_percentage(next_pct)
+        else:
+            await self._send_ir_command("Speed Adjust")
 
     async def async_set_timer(self, duration: int) -> None:
         """Set the timer."""
         await self._ensure_power()
-        if duration == 2:
+        if self._model == MODEL_ATOMBERG:
+            await self._send_ir_command("Timer")
+        elif duration == 2:
             key = "2hr Timer" if self._model == MODEL_T12_6 else "2 Hour Timer"
             await self._send_ir_command(key)
         elif duration == 6:
