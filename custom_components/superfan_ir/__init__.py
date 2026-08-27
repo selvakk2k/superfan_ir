@@ -17,7 +17,7 @@ class SuperfanEntryData:
 
     def __init__(self, entry: ConfigEntry) -> None:
         self.entry = entry
-        self.last_controlled_via: str = "Home Assistant"
+        self.last_controlled_via: str = "IR Blaster"
         self.listeners: list[Callable[[], None]] = []
 
     def set_last_controlled_via(self, source: str) -> None:

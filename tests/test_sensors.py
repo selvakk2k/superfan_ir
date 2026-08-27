@@ -50,12 +50,12 @@ async def test_last_controlled_via_sensor(mock_entry):
     entry_data = SuperfanEntryData(mock_entry)
     sensor.hass.data = {DOMAIN: {mock_entry.entry_id: entry_data}}
 
-    assert sensor.native_value == "Home Assistant"
+    assert sensor.native_value == "IR Blaster"
     assert sensor.icon == "mdi:home-assistant"
 
     # Change to Physical IR Remote
-    entry_data.set_last_controlled_via("Physical IR Remote")
-    assert sensor.native_value == "Physical IR Remote"
+    entry_data.set_last_controlled_via("IR Remote")
+    assert sensor.native_value == "IR Remote"
     assert sensor.icon == "mdi:remote"
 
     # Change to Mains Switch

@@ -261,7 +261,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 return
 
             _LOGGER.debug("Physical IR remote pressed for %s: %s", self._model, action)
-            self._notify_control_source("Physical IR Remote")
+            self._notify_control_source("IR Remote")
             if action == "Power":
                 self._attr_is_on = not self._attr_is_on
                 if self._attr_is_on:
@@ -327,7 +327,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
     async def _send_ir_command(self, code_key: str) -> None:
         """Send IR command using the configured format and transport backend."""
-        self._notify_control_source("Home Assistant")
+        self._notify_control_source("IR Blaster")
         try:
             fmt = self._ir_format
             emitter = self._emitter_id

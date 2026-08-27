@@ -53,7 +53,7 @@ class SuperfanLastControlledViaSensor(SensorEntity, RestoreEntity):
         self._entry = entry
         self._model = fan_model
         self._attr_unique_id = f"{entry.entry_id}_last_controlled_via"
-        self._state_val = "Home Assistant"
+        self._state_val = "IR Blaster"
 
         if self._model == MODEL_ATOMBERG:
             brand_name = "Atomberg"
@@ -85,7 +85,7 @@ class SuperfanLastControlledViaSensor(SensorEntity, RestoreEntity):
     def icon(self) -> str:
         """Return dynamic icon."""
         val = self.native_value
-        if val == "Physical IR Remote":
+        if val in ("IR Remote", "Physical IR Remote"):
             return "mdi:remote"
         if val == "Mains Switch":
             return "mdi:toggle-switch"
