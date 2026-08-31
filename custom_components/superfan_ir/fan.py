@@ -352,6 +352,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         if old_state is not None and old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return
 
+        fan_name = self.name or (self._entry.title if hasattr(self, "_entry") and self._entry else "Fan")
         elapsed = time.monotonic() - self._last_command_time
         if (
             self._last_command_source == "HA"
@@ -363,7 +364,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 self._emitter_id,
                 elapsed,
                 self._last_requested_action,
-                self.name,
+                fan_name,
             )
             if self._is_esphome:
                 await asyncio.sleep(0.3)
