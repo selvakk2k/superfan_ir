@@ -178,3 +178,112 @@ async def test_physical_remote_ir_receiver_sync_atomberg(mock_entry):
         assert fan.is_on is False
         assert fan.percentage == 0
         mock_write.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_send_ir_command_auto_detect_tuya(mock_entry):
+    """Test that generic remote.* entities auto-detect to IR_FORMAT_TUYA."""
+    from custom_components.superfan_ir.const import IR_FORMAT_AUTO
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="remote.tuya_ir_blaster",
+        ir_format=IR_FORMAT_AUTO,
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+    fan.hass.services.async_call = AsyncMock()
+
+    await fan._send_ir_command("1")
+    fan.hass.services.async_call.assert_called_once()
+    domain, service, service_data = fan.hass.services.async_call.call_args[0]
+    assert domain == "remote"
+    assert service == "send_command"
+    assert service_data["entity_id"] == "remote.tuya_ir_blaster"
+    from custom_components.superfan_ir.ir import SuperfanNEC
+    assert service_data["command"][0] == SuperfanNEC.get_tuya_base64("1", MODEL_T10)
+
+
+@pytest.mark.asyncio
+async def test_send_ir_command_auto_detect_broadlink(mock_entry):
+    """Test that broadlink remote entities auto-detect to IR_FORMAT_BROADLINK."""
+    from custom_components.superfan_ir.const import IR_FORMAT_AUTO
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="remote.broadlink_rm4_pro",
+        ir_format=IR_FORMAT_AUTO,
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+    fan.hass.services.async_call = AsyncMock()
+
+    await fan._send_ir_command("1")
+    fan.hass.services.async_call.assert_called_once()
+    domain, service, service_data = fan.hass.services.async_call.call_args[0]
+    assert domain == "remote"
+    assert service == "send_command"
+    assert service_data["entity_id"] == "remote.broadlink_rm4_pro"
+    assert service_data["command"][0].startswith("b64:")
+
+
+@pytest.mark.asyncio
+async def test_send_ir_command_auto_detect_esphome(mock_entry):
+    """Test that esphome emitters auto-detect to IR_FORMAT_RAW."""
+    from custom_components.superfan_ir.const import IR_FORMAT_AUTO
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="esphome.bedroom_fan_emitter",
+        ir_format=IR_FORMAT_AUTO,
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+    fan.hass.services.async_call = AsyncMock()
+
+    await fan._send_ir_command("1")
+    fan.hass.services.async_call.assert_called_once()
+    domain, service, service_data = fan.hass.services.async_call.call_args[0]
+    assert domain == "esphome"
+    assert service == "bedroom_fan_emitter_transmit_raw"
+    assert "command" in service_data
+
+
+@pytest.mark.asyncio
+async def test_send_ir_command_missing_emitter_returns_false(mock_entry):
+    """Test that missing or empty emitter_id returns False and does not crash or update state."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    result = await fan._send_ir_command("1")
+    assert result is False
+
+    await fan.async_set_percentage(80)
+    assert fan.is_on is False
+    assert fan.percentage == 0
+
+
+@pytest.mark.asyncio
+async def test_send_ir_command_failure_returns_false_and_preserves_state(mock_entry):
+    """Test that synchronous transport failure returns False without raising and preserves entity state."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="remote.tuya_ir_blaster",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+    fan.hass.services.async_call = AsyncMock(side_effect=RuntimeError("Connection refused"))
+
+    result = await fan._send_ir_command("1")
+    assert result is False
+
+    # Calling async_set_percentage when transport fails should return early without setting state to ON
+    await fan.async_set_percentage(80)
+    assert fan.is_on is False
+    assert fan.percentage == 0

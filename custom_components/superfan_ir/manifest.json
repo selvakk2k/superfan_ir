@@ -10,5 +10,5 @@
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/selvakk2k/superfan_ir/issues",
-  "version": "2.0.0-beta.6"
+  "version": "2.0.0-beta.7"
 }

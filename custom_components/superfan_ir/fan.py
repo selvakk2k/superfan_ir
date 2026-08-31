@@ -191,6 +191,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         self._attr_preset_mode: str | None = None
         self._last_percentage: int = default_pct
         self._last_preset_mode: str | None = None
+        self._attr_assumed_state: bool = True
 
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
@@ -379,12 +380,16 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         if entry_data and hasattr(entry_data, "set_last_controlled_via"):
             entry_data.set_last_controlled_via(source)
 
-    async def _send_ir_command(self, code_key: str) -> None:
+    async def _send_ir_command(self, code_key: str) -> bool:
         """Send IR command using the configured format and transport backend."""
+        emitter = self._emitter_id
+        if not emitter:
+            _LOGGER.error("No emitter entity configured for %s", self.name)
+            return False
+
         self._notify_control_source("IR Blaster")
         try:
             fmt = self._ir_format
-            emitter = self._emitter_id
             addr = SuperfanNEC.get_address(self._model)
             cmd_byte = SuperfanNEC.get_command_byte(code_key, self._model)
             _LOGGER.info(
@@ -396,14 +401,15 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 emitter,
                 fmt,
             )
-            fmt = self._ir_format
-            emitter = self._emitter_id
 
             if fmt == IR_FORMAT_AUTO:
+                emitter_lower = emitter.lower()
                 if emitter.startswith("esphome.") or "transmit_raw" in emitter:
                     fmt = IR_FORMAT_RAW
-                elif emitter.startswith("remote."):
+                elif "broadlink" in emitter_lower:
                     fmt = IR_FORMAT_BROADLINK
+                elif emitter.startswith("remote."):
+                    fmt = IR_FORMAT_TUYA
                 else:
                     fmt = IR_FORMAT_RAW
 
@@ -478,8 +484,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 raw_timings = SuperfanNEC.get_raw_timings(code_key, self._model)
                 command = RawIRCommand(raw_timings)
                 await async_send_command(self.hass, emitter, command)
+            return True
         except Exception as err:
             _LOGGER.error("Failed to dispatch IR command (%s) for %s: %s", code_key, self._model, err)
+            return False
 
     async def async_turn_on(
         self,
@@ -492,38 +500,48 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
         if percentage is None and preset_mode is None:
             if self._last_preset_mode and self._last_preset_mode in self._attr_preset_modes:
+                target_preset = self._last_preset_mode
+                if not await self._send_ir_command(target_preset):
+                    return
                 self._attr_is_on = True
-                self._attr_preset_mode = self._last_preset_mode
+                self._attr_preset_mode = target_preset
                 self._attr_percentage = None
-                await self._send_ir_command(self._last_preset_mode)
             else:
                 target_pct = (
                     self._last_percentage if self._last_percentage > 0 else self._default_pct
                 )
+                speed_key = self._map_percentage_to_speed(target_pct)
+                if not await self._send_ir_command(speed_key):
+                    return
                 self._attr_is_on = True
                 self._attr_percentage = target_pct
                 self._attr_preset_mode = None
-                speed_key = self._map_percentage_to_speed(target_pct)
-                await self._send_ir_command(speed_key)
         elif percentage is not None:
             await self.async_set_percentage(percentage)
+            return
         elif preset_mode is not None:
             await self.async_set_preset_mode(preset_mode)
+            return
 
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the fan."""
         if self._power_switch:
-            await self.hass.services.async_call(
-                "switch",
-                "turn_off",
-                {"entity_id": self._power_switch},
-                context=self._context,
-            )
+            try:
+                await self.hass.services.async_call(
+                    "switch",
+                    "turn_off",
+                    {"entity_id": self._power_switch},
+                    context=self._context,
+                )
+            except Exception as err:
+                _LOGGER.error("Failed to turn off power switch %s: %s", self._power_switch, err)
+                return
         else:
             cmd = "Power Off" if self._model == MODEL_ORIENT else "Power"
-            await self._send_ir_command(cmd)
+            if not await self._send_ir_command(cmd):
+                return
 
         self._attr_is_on = False
         self._attr_percentage = 0
@@ -537,14 +555,15 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             return
 
         await self._ensure_power()
+        key = self._map_percentage_to_speed(percentage)
+        if not await self._send_ir_command(key):
+            return
+
         self._attr_is_on = True
         self._attr_percentage = percentage
         self._last_percentage = percentage
         self._attr_preset_mode = None
         self._last_preset_mode = None
-
-        key = self._map_percentage_to_speed(percentage)
-        await self._send_ir_command(key)
         self.async_write_ha_state()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
@@ -553,11 +572,13 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             return
 
         await self._ensure_power()
+        if not await self._send_ir_command(preset_mode):
+            return
+
         self._attr_is_on = True
         self._attr_preset_mode = preset_mode
         self._last_preset_mode = preset_mode
         self._attr_percentage = None
-        await self._send_ir_command(preset_mode)
         self.async_write_ha_state()
 
     async def async_speed_adjust(self) -> None:
