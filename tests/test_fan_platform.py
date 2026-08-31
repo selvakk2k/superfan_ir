@@ -287,3 +287,208 @@ async def test_send_ir_command_failure_returns_false_and_preserves_state(mock_en
     await fan.async_set_percentage(80)
     assert fan.is_on is False
     assert fan.percentage == 0
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_on_emitter_reconnect_success(mock_entry):
+    """Test that commands issued within TTL auto-resync when emitter recovers from unavailable."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T12_6,
+        emitter_id="infrared.living_blaster",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+    fan._is_esphome = True
+
+    # 1. User sets speed to 66% (Medium) via HA UI
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(
+        fan, "async_write_ha_state"
+    ):
+        mock_send.return_value = True
+        await fan.async_set_percentage(66)
+        assert fan._last_command_source == "HA"
+        assert fan._last_requested_action == "Medium"
+        assert fan.percentage == 66
+        mock_send.assert_called_once_with("Medium")
+
+    # 2. Emitter transitions from unavailable -> available within 10 seconds
+    event = MagicMock(spec=Event)
+    old_state = MagicMock(state="unavailable")
+    new_state = MagicMock(state="2026-09-01T00:00:00+00:00")
+    event.data = {"old_state": old_state, "new_state": new_state}
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_resync_send, patch(
+        "asyncio.sleep", new_callable=AsyncMock
+    ) as mock_sleep:
+        mock_resync_send.return_value = True
+        await fan._async_emitter_state_changed(event)
+
+        mock_sleep.assert_called_once_with(0.3)
+        mock_resync_send.assert_called_once_with("Medium")
+        # Action is consumed
+        assert fan._last_requested_action is None
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_stale_ttl_discarded(mock_entry):
+    """Test that commands older than 180s TTL are discarded on reconnect (preventing 3am ghost turn-on)."""
+    import time
+
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T12_6,
+        emitter_id="infrared.living_blaster",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    # Simulate command issued 200 seconds ago
+    fan._last_command_source = "HA"
+    fan._last_command_time = time.monotonic() - 200.0
+    fan._last_requested_action = "High"
+
+    event = MagicMock(spec=Event)
+    old_state = MagicMock(state="unavailable")
+    new_state = MagicMock(state="2026-09-01T00:00:00+00:00")
+    event.data = {"old_state": old_state, "new_state": new_state}
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send:
+        await fan._async_emitter_state_changed(event)
+        mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_physical_remote_precedence(mock_entry):
+    """Test that a physical remote press overrides HA command and aborts resync."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="infrared.living_blaster",
+        receiver_id="infrared.living_receiver",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    # 1. HA sets speed to 80% (Speed 4)
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock), patch.object(
+        fan, "async_write_ha_state"
+    ):
+        await fan.async_set_percentage(80)
+        assert fan._last_requested_action == "4"
+
+    # 2. Physical remote is pressed (decoded NEC: Addr=0x00DF, Cmd=0x94 -> Speed 1)
+    remote_event = MagicMock(spec=Event)
+    remote_event.data = {
+        "new_state": MagicMock(state="0x00DF946B")  # NEC full frame for Speed 1
+    }
+    with patch.object(fan, "async_write_ha_state"):
+        await fan._async_receiver_event(remote_event)
+        assert fan._last_command_source == "IR Remote"
+        assert fan._last_requested_action is None
+
+    # 3. Emitter recovers from unavailable -> available
+    reconnect_event = MagicMock(spec=Event)
+    reconnect_event.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send:
+        await fan._async_emitter_state_changed(reconnect_event)
+        mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_mains_switch_precedence(mock_entry):
+    """Test that toggling wall power switch off clears pending action and aborts resync."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="infrared.living_blaster",
+        power_switch="switch.fan_mains",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+    fan.hass.services.async_call = AsyncMock()
+
+    # 1. HA command issued
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock), patch.object(
+        fan, "async_write_ha_state"
+    ):
+        await fan.async_set_percentage(80)
+        assert fan._last_requested_action == "4"
+
+    # 2. Wall switch turned off
+    switch_event = MagicMock(spec=Event)
+    switch_event.data = {"new_state": MagicMock(state="off")}
+    with patch.object(fan, "async_write_ha_state"):
+        fan._async_switch_state_changed(switch_event)
+        assert fan._last_command_source == "Mains Switch"
+        assert fan._last_requested_action is None
+
+    # 3. Emitter recovers
+    reconnect_event = MagicMock(spec=Event)
+    reconnect_event.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send:
+        await fan._async_emitter_state_changed(reconnect_event)
+        mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_decoupled_topology(mock_entry):
+    """Test independent transmitter and receiver on separate devices."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="infrared.transmitter_device",
+        receiver_id="infrared.receiver_device_separate",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    # Separate receiver receives command while transmitter is offline
+    remote_event = MagicMock(spec=Event)
+    remote_event.data = {"new_state": MagicMock(state="0x00DF9867")}  # Power toggle
+    with patch.object(fan, "async_write_ha_state"):
+        await fan._async_receiver_event(remote_event)
+        assert fan._last_command_source == "IR Remote"
+        assert fan._last_requested_action is None
+
+    # Transmitter comes online
+    reconnect_event = MagicMock(spec=Event)
+    reconnect_event.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send:
+        await fan._async_emitter_state_changed(reconnect_event)
+        mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_ha_restart_no_spurious_transmission(mock_entry):
+    """Test that an ordinary HA restart does not trigger spurious IR transmissions."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="infrared.living_blaster",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    assert fan._last_command_source == "Init"
+    assert fan._last_command_time == 0.0
+    assert fan._last_requested_action is None
+
+    reconnect_event = MagicMock(spec=Event)
+    reconnect_event.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send:
+        await fan._async_emitter_state_changed(reconnect_event)
+        mock_send.assert_not_called()
+

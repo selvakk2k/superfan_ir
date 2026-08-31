@@ -185,6 +185,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
         self._default_pct: int = default_pct
         self._switch_turned_on_time: float = 0.0
+        self._last_command_time: float = 0.0
+        self._last_command_source: str = "Init"
+        self._last_requested_action: str | None = None
+        self._is_esphome: bool = False
 
         self._attr_is_on: bool = False
         self._attr_percentage: int | None = 0
@@ -218,6 +222,23 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 self._attr_percentage = 0
                 self._attr_preset_mode = None
 
+        if self._emitter_id:
+            from homeassistant.helpers import entity_registry as er
+
+            ent_reg = er.async_get(self.hass)
+            entry = ent_reg.async_get(self._emitter_id)
+            self._is_esphome = (
+                (entry is not None and entry.platform == "esphome")
+                or self._emitter_id.startswith("infrared.")
+                or self._emitter_id.startswith("esphome.")
+            )
+
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._emitter_id], self._async_emitter_state_changed
+                )
+            )
+
         if self._power_switch:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -240,6 +261,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             return
 
         self._notify_control_source("Mains Switch")
+        self._last_command_source = "Mains Switch"
+        self._last_command_time = time.monotonic()
+        self._last_requested_action = None
+
         if new_state.state == "off":
             self._attr_is_on = False
             self._attr_percentage = 0
@@ -282,6 +307,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
             _LOGGER.debug("Physical IR remote pressed for %s: %s", self._model, action)
             self._notify_control_source("IR Remote")
+            self._last_command_source = "IR Remote"
+            self._last_command_time = time.monotonic()
+            self._last_requested_action = None
+
             if action == "Power":
                 self._attr_is_on = not self._attr_is_on
                 if self._attr_is_on:
@@ -311,6 +340,44 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             self.async_write_ha_state()
         except Exception as err:
             _LOGGER.debug("Error processing IR receiver signal '%s': %s", raw_val, err)
+
+    async def _async_emitter_state_changed(self, event: Event) -> None:
+        """Handle IR blaster emitter availability changes."""
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return
+
+        # Trigger only on the edge transition from unavailable/unknown to available
+        if old_state is not None and old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return
+
+        elapsed = time.monotonic() - self._last_command_time
+        if (
+            self._last_command_source == "HA"
+            and self._last_requested_action is not None
+            and elapsed <= 180.0
+        ):
+            _LOGGER.info(
+                "IR blaster %s reconnected after %.1fs — resyncing '%s' for %s",
+                self._emitter_id,
+                elapsed,
+                self._last_requested_action,
+                self.name,
+            )
+            if self._is_esphome:
+                await asyncio.sleep(0.3)
+            action_to_send = self._last_requested_action
+            self._last_requested_action = None
+            await self._send_ir_command(action_to_send)
+        else:
+            _LOGGER.debug(
+                "IR blaster %s reconnected — resync skipped (source=%s, elapsed=%.1fs, pending=%s)",
+                self._emitter_id,
+                self._last_command_source,
+                elapsed,
+                self._last_requested_action,
+            )
 
     def _map_speed_to_percentage(self, speed_key: str) -> int:
         if self._model in (MODEL_ATOMBERG, MODEL_ACTIVA):
@@ -501,6 +568,9 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         if percentage is None and preset_mode is None:
             if self._last_preset_mode and self._last_preset_mode in self._attr_preset_modes:
                 target_preset = self._last_preset_mode
+                self._last_command_source = "HA"
+                self._last_command_time = time.monotonic()
+                self._last_requested_action = target_preset
                 if not await self._send_ir_command(target_preset):
                     return
                 self._attr_is_on = True
@@ -511,6 +581,9 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                     self._last_percentage if self._last_percentage > 0 else self._default_pct
                 )
                 speed_key = self._map_percentage_to_speed(target_pct)
+                self._last_command_source = "HA"
+                self._last_command_time = time.monotonic()
+                self._last_requested_action = speed_key
                 if not await self._send_ir_command(speed_key):
                     return
                 self._attr_is_on = True
@@ -527,7 +600,11 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the fan."""
+        self._last_command_source = "HA"
+        self._last_command_time = time.monotonic()
+
         if self._power_switch:
+            self._last_requested_action = None
             try:
                 await self.hass.services.async_call(
                     "switch",
@@ -540,6 +617,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 return
         else:
             cmd = "Power Off" if self._model == MODEL_ORIENT else "Power"
+            self._last_requested_action = cmd
             if not await self._send_ir_command(cmd):
                 return
 
@@ -556,6 +634,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
         await self._ensure_power()
         key = self._map_percentage_to_speed(percentage)
+        self._last_command_source = "HA"
+        self._last_command_time = time.monotonic()
+        self._last_requested_action = key
+
         if not await self._send_ir_command(key):
             return
 
@@ -572,6 +654,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             return
 
         await self._ensure_power()
+        self._last_command_source = "HA"
+        self._last_command_time = time.monotonic()
+        self._last_requested_action = preset_mode
+
         if not await self._send_ir_command(preset_mode):
             return
 
