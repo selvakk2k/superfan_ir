@@ -268,25 +268,27 @@ class SuperfanNEC:
         return SUPERFAN_COMMAND_BYTES[command_name]
 
     @classmethod
-    def get_raw_timings(cls, command_name: str, model: str | None = None) -> list[int]:
-        """Generate alternating microsecond durations [pulse, space, ...] for Home Assistant RawIRCommand."""
+    def get_raw_timings(cls, command_name: str, model: str | None = None, repeats: int = 2) -> list[int]:
+        """Generate alternating microsecond durations [pulse, space, ...] for Home Assistant RawIRCommand with repeated NEC frames."""
         cmd_byte = cls.get_command_byte(command_name, model)
         addr = cls.get_address(model)
         inv_cmd = (~cmd_byte) & 0xFF
 
         # Transmit big-endian address bytes [Addr0, Addr1], then Command, then ~Command
         bytes_to_send = [(addr >> 8) & 0xFF, addr & 0xFF, cmd_byte, inv_cmd]
-        timings: list[int] = [NEC_HDR_MARK, NEC_HDR_SPACE]
+        timings: list[int] = []
 
-        for b in bytes_to_send:
-            for bit_idx in range(8):
-                bit = (b >> bit_idx) & 1
-                timings.append(NEC_BIT_MARK)
-                timings.append(NEC_ONE_SPACE if bit else NEC_ZERO_SPACE)
+        for rep in range(max(1, repeats)):
+            timings.extend([NEC_HDR_MARK, NEC_HDR_SPACE])
+            for b in bytes_to_send:
+                for bit_idx in range(8):
+                    bit = (b >> bit_idx) & 1
+                    timings.append(NEC_BIT_MARK)
+                    timings.append(NEC_ONE_SPACE if bit else NEC_ZERO_SPACE)
 
-        # End bit of main frame + lead-out gap
-        timings.append(NEC_BIT_MARK)
-        timings.append(42000)
+            # End bit of frame + lead-out gap
+            timings.append(NEC_BIT_MARK)
+            timings.append(42000 if rep < repeats - 1 else 30000)
 
         # NEC Repeat Frame (required for hardware receiver filtering on Superfan & Atomberg ICs)
         timings.extend([NEC_HDR_MARK, NEC_RPT_SPACE, NEC_BIT_MARK, 30000])

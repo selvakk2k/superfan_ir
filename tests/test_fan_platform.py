@@ -53,12 +53,21 @@ async def test_superfan_t10_state_memory_retention(mock_entry):
         assert fan.percentage == 0
         assert fan._last_percentage == 80
 
-    # 3. Turn on without args (restores 80% instead of resetting to default)
+    # 3. Turn on without args (restores 80% speed code "4" instead of resetting to default)
     with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(fan, "async_write_ha_state"):
         await fan.async_turn_on()
         assert fan.is_on is True
         assert fan.percentage == 80
-        mock_send.assert_called_with("Power")
+        mock_send.assert_called_with("4")
+
+    # 4. Turn on with active preset (restores preset mode IR command)
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(fan, "async_write_ha_state"):
+        await fan.async_set_preset_mode("Breeze Mode")
+        await fan.async_turn_off()
+        await fan.async_turn_on()
+        assert fan.is_on is True
+        assert fan.preset_mode == "Breeze Mode"
+        mock_send.assert_called_with("Breeze Mode")
 
 
 @pytest.mark.asyncio
@@ -110,14 +119,14 @@ async def test_smart_switch_power_interlock(mock_entry):
     switch_state.state = "off"
     fan.hass.states.get.return_value = switch_state
 
-    # Turning on should turn on smart switch and send Power IR
+    # Turning on should turn on smart switch, sleep 1.5s boot delay, and send restored speed IR (3 for default 60%)
     with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(fan, "async_write_ha_state"):
         await fan.async_turn_on()
         fan.hass.services.async_call.assert_called_with(
             "switch", "turn_on", {"entity_id": "switch.fan_smart_plug"}, context=fan._context
         )
-        mock_sleep.assert_called_with(2.0)
-        mock_send.assert_called_with("Power")
+        mock_sleep.assert_called_with(1.5)
+        mock_send.assert_called_with("3")
 
     # Turning off should turn off smart switch directly
     with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(fan, "async_write_ha_state"):

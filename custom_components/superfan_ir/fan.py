@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
@@ -182,6 +183,9 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             default_pct = 66
             brand_name = "Versa Drives (Superfan)"
 
+        self._default_pct: int = default_pct
+        self._switch_turned_on_time: float = 0.0
+
         self._attr_is_on: bool = False
         self._attr_percentage: int | None = 0
         self._attr_preset_mode: str | None = None
@@ -240,9 +244,16 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             self._attr_percentage = 0
             self._attr_preset_mode = None
         elif new_state.state == "on" and not self._attr_is_on:
+            self._switch_turned_on_time = time.monotonic()
             self._attr_is_on = True
-            self._attr_percentage = self._last_percentage
-            self._attr_preset_mode = self._last_preset_mode
+            if self._last_preset_mode and self._last_preset_mode in self._attr_preset_modes:
+                self._attr_preset_mode = self._last_preset_mode
+                self._attr_percentage = None
+            else:
+                self._attr_percentage = (
+                    self._last_percentage if self._last_percentage > 0 else self._default_pct
+                )
+                self._attr_preset_mode = None
 
         self.async_write_ha_state()
 
@@ -310,13 +321,47 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         map_t12 = {"Low": 33, "Medium": 66, "High": 100}
         return map_t12.get(speed_key, 66)
 
+    def _map_percentage_to_speed(self, percentage: int) -> str:
+        """Map percentage to discrete model-specific speed key."""
+        if self._model in (MODEL_ATOMBERG, MODEL_ACTIVA):
+            if percentage <= 17:
+                return "1"
+            if percentage <= 34:
+                return "2"
+            if percentage <= 50:
+                return "3"
+            if percentage <= 67:
+                return "4"
+            if percentage <= 84:
+                return "5"
+            return "6" if self._model == MODEL_ACTIVA else "Boost"
+        if self._model in (MODEL_T10, MODEL_ORIENT, MODEL_GOLDMEDAL):
+            if percentage <= 20:
+                return "1"
+            if percentage <= 40:
+                return "2"
+            if percentage <= 60:
+                return "3"
+            if percentage <= 80:
+                return "4"
+            return "5"
+        if percentage <= 33:
+            return "Low"
+        if percentage <= 66:
+            return "Medium"
+        return "High"
+
     async def _ensure_power(self) -> None:
-        """Ensure the power switch is turned on before sending an IR command."""
+        """Ensure the power switch is turned on and fan MCU is boot-ready before sending an IR command."""
         if not self._power_switch:
             return
 
         switch_state = self.hass.states.get(self._power_switch)
         if switch_state and switch_state.state == "on":
+            # If switch was turned on recently (<1.5s), wait for MCU boot grace period
+            elapsed = time.monotonic() - self._switch_turned_on_time
+            if elapsed < 1.5:
+                await asyncio.sleep(max(0.1, 1.5 - elapsed))
             return
 
         await self.hass.services.async_call(
@@ -325,7 +370,8 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             {"entity_id": self._power_switch},
             context=self._context,
         )
-        await asyncio.sleep(2.0)
+        self._switch_turned_on_time = time.monotonic()
+        await asyncio.sleep(1.5)
 
     def _notify_control_source(self, source: str) -> None:
         """Update shared last controlled via sensor."""
@@ -383,6 +429,8 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                     {
                         "entity_id": emitter,
                         "command": [f"b64:{payload}" if not payload.startswith("b64:") else payload],
+                        "num_repeats": 2,
+                        "delay_secs": 0.1,
                     },
                     context=self._context,
                 )
@@ -394,6 +442,8 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                     {
                         "entity_id": emitter,
                         "command": [payload],
+                        "num_repeats": 2,
+                        "delay_secs": 0.1,
                     },
                     context=self._context,
                 )
@@ -405,6 +455,8 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                     {
                         "entity_id": emitter,
                         "command": [pronto_payload],
+                        "num_repeats": 2,
+                        "delay_secs": 0.1,
                     },
                     context=self._context,
                 )
@@ -439,14 +491,23 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         await self._ensure_power()
 
         if percentage is None and preset_mode is None:
-            cmd = "Power On" if self._model == MODEL_ORIENT else "Power"
-            await self._send_ir_command(cmd)
-            self._attr_is_on = True
-            self._attr_percentage = self._last_percentage
-            self._attr_preset_mode = self._last_preset_mode
-        if percentage is not None:
+            if self._last_preset_mode and self._last_preset_mode in self._attr_preset_modes:
+                self._attr_is_on = True
+                self._attr_preset_mode = self._last_preset_mode
+                self._attr_percentage = None
+                await self._send_ir_command(self._last_preset_mode)
+            else:
+                target_pct = (
+                    self._last_percentage if self._last_percentage > 0 else self._default_pct
+                )
+                self._attr_is_on = True
+                self._attr_percentage = target_pct
+                self._attr_preset_mode = None
+                speed_key = self._map_percentage_to_speed(target_pct)
+                await self._send_ir_command(speed_key)
+        elif percentage is not None:
             await self.async_set_percentage(percentage)
-        if preset_mode is not None:
+        elif preset_mode is not None:
             await self.async_set_preset_mode(preset_mode)
 
         self.async_write_ha_state()
@@ -482,24 +543,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         self._attr_preset_mode = None
         self._last_preset_mode = None
 
-        if self._model in (MODEL_ATOMBERG, MODEL_ACTIVA):
-            if percentage <= 17: key = "1"
-            elif percentage <= 34: key = "2"
-            elif percentage <= 50: key = "3"
-            elif percentage <= 67: key = "4"
-            elif percentage <= 84: key = "5"
-            else: key = "6" if self._model == MODEL_ACTIVA else "Boost"
-        elif self._model in (MODEL_T10, MODEL_ORIENT, MODEL_GOLDMEDAL):
-            if percentage <= 20: key = "1"
-            elif percentage <= 40: key = "2"
-            elif percentage <= 60: key = "3"
-            elif percentage <= 80: key = "4"
-            else: key = "5"
-        else:
-            if percentage <= 33: key = "Low"
-            elif percentage <= 66: key = "Medium"
-            else: key = "High"
-
+        key = self._map_percentage_to_speed(percentage)
         await self._send_ir_command(key)
         self.async_write_ha_state()
 
