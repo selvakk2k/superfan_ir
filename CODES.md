@@ -95,8 +95,7 @@ $$\text{32-bit NEC Frame} = [\text{Address (16-bit)}] + [\text{Command (8-bit)}]
 
 ## 4. Multi-Transport Output Formats Generated
 
-* **Home Assistant Native Infrared (`infrared.*`)**: Microsecond duration pulse/space integers.
-* **ESPHome (`remote_transmitter.transmit_raw`)**: Microsecond timing array with negative spaces (`[+9000, -4500, +560, -560, ...]`).
+* **Home Assistant Native Infrared (`infrared.*`)**: Microsecond duration pulse/space integers via `RawIRCommand`.
 * **Broadlink Base64 (`remote.send_command`)**: `0x26` packet format encoded in Base64 (`b64:Jg...`).
 * **Tuya Base64 (`remote.send_command`)**: Little-endian 16-bit integer pulse timings in Base64.
 * **Pronto Hex**: Universal CCF format string (`0000 006D 0022 0000 ...`).

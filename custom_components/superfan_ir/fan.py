@@ -482,7 +482,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
             if fmt == IR_FORMAT_AUTO:
                 emitter_lower = emitter.lower()
-                if emitter.startswith("esphome.") or "transmit_raw" in emitter:
+                if emitter.startswith("infrared."):
                     fmt = IR_FORMAT_RAW
                 elif "broadlink" in emitter_lower:
                     fmt = IR_FORMAT_BROADLINK
@@ -491,21 +491,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 else:
                     fmt = IR_FORMAT_RAW
 
-            if fmt == IR_FORMAT_RAW and (emitter.startswith("esphome.") or "transmit_raw" in emitter):
-                esphome_timings = SuperfanNEC.get_esphome_timings(code_key, self._model)
-                device_name = emitter.replace("esphome.", "").strip()
-                service_name = (
-                    f"{device_name}_transmit_raw"
-                    if not device_name.endswith("_transmit_raw")
-                    else device_name
-                )
-                await self.hass.services.async_call(
-                    "esphome",
-                    service_name,
-                    {"command": esphome_timings},
-                    context=self._context,
-                )
-            elif fmt == IR_FORMAT_BROADLINK:
+            if fmt == IR_FORMAT_BROADLINK:
                 payload = SuperfanNEC.get_broadlink_base64(code_key, self._model)
                 await self.hass.services.async_call(
                     "remote",

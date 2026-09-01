@@ -8,8 +8,7 @@ Hardware-Verified 38kHz NEC Carrier Protocols:
 - Goldmedal (Opus Prime, Winzo, Spacio, Aura Lux): 16-bit address 0x5A95
 
 Transports Supported:
-- Home Assistant Native Infrared (Raw duration microsecond arrays)
-- ESPHome signed pulse/space timing arrays (+pulse, -space)
+- Home Assistant Native Infrared (Raw duration microsecond arrays via infrared.*)
 - Broadlink Base64 (0x26 packet format)
 - Tuya Base64 (little-endian uint16 byte stream)
 - Pronto Hex (Universal CCF 0000 006D format)
@@ -334,11 +333,7 @@ class SuperfanNEC:
             words.append(min(cycles, 0xFFFF))
         return " ".join(f"{w:04X}" for w in words)
 
-    @classmethod
-    def get_esphome_timings(cls, command_name: str, model: str | None = None) -> list[int]:
-        """Generate signed ESPHome pulse/space timing array (+pulse, -space)."""
-        timings = cls.get_raw_timings(command_name, model)
-        return [t if i % 2 == 0 else -t for i, t in enumerate(timings)]
+
 
     @classmethod
     def get_tasmota_payload(cls, command_name: str, model: str | None = None) -> dict[str, Any]:

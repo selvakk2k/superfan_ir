@@ -1,7 +1,14 @@
 import io
 import base64
 from struct import unpack
-from infrared_protocols.commands import Command
+
+try:
+    from infrared_protocols.commands import Command
+except ImportError:
+    class Command:
+        """Fallback Command class when infrared_protocols is not installed."""
+        def __init__(self, modulation: int = 38000) -> None:
+            self.modulation = modulation
 
 class RawIRCommand(Command):
     """A raw IR command that takes a list of durations (in microseconds)."""

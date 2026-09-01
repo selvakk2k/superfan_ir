@@ -109,28 +109,6 @@ infrared:
     remote_receiver_id: ir_rx
 ```
 
-### Option B: Direct ESPHome Raw API Service
-
-Add this to your ESPHome device YAML:
-
-```yaml
-api:
-  services:
-    - service: transmit_raw
-      variables:
-        command: int[]
-      then:
-        - remote_transmitter.transmit_raw:
-            transmitter_id: tx
-            carrier_frequency: 38kHz
-            code: !lambda 'return command;'
-
-remote_transmitter:
-  pin: P26
-  carrier_duty_percent: 50%
-  id: tx
-```
-
 ---
 
 ## Credits & License

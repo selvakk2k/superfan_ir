@@ -228,25 +228,31 @@ async def test_send_ir_command_auto_detect_broadlink(mock_entry):
 
 
 @pytest.mark.asyncio
-async def test_send_ir_command_auto_detect_esphome(mock_entry):
-    """Test that esphome emitters auto-detect to IR_FORMAT_RAW."""
+async def test_send_ir_command_auto_detect_infrared(mock_entry):
+    """Test that infrared emitters auto-detect to IR_FORMAT_RAW and dispatch via async_send_command."""
+    import types
+    import sys
     from custom_components.superfan_ir.const import IR_FORMAT_AUTO
     fan = SuperfanEntity(
         entry=mock_entry,
         fan_model=MODEL_T10,
-        emitter_id="esphome.bedroom_fan_emitter",
+        emitter_id="infrared.bedroom_fan_emitter",
         ir_format=IR_FORMAT_AUTO,
     )
     fan.entity_id = "fan.test_fan"
     fan.hass = MagicMock()
-    fan.hass.services.async_call = AsyncMock()
 
-    await fan._send_ir_command("1")
-    fan.hass.services.async_call.assert_called_once()
-    domain, service, service_data = fan.hass.services.async_call.call_args[0]
-    assert domain == "esphome"
-    assert service == "bedroom_fan_emitter_transmit_raw"
-    assert "command" in service_data
+    mock_send = AsyncMock()
+    ir_helpers_mod = types.ModuleType("homeassistant.components.infrared.helpers")
+    ir_helpers_mod.async_send_command = mock_send
+
+    with patch.dict(sys.modules, {"homeassistant.components.infrared.helpers": ir_helpers_mod}):
+        await fan._send_ir_command("1")
+        mock_send.assert_called_once()
+        hass, emitter, command = mock_send.call_args[0]
+        assert emitter == "infrared.bedroom_fan_emitter"
+        assert hasattr(command, "get_raw_timings")
+        assert len(command.get_raw_timings()) > 0
 
 
 @pytest.mark.asyncio
