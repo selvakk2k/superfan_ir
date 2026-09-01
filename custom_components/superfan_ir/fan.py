@@ -371,6 +371,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             action_to_send = self._last_requested_action
             self._last_requested_action = None
             self._last_command_source = "Blaster Reconnect Resync"
+            # INVARIANT: Must call the low-level transport primitive `_send_ir_command` directly.
+            # Do NOT route through public methods (async_turn_on, async_set_percentage, etc.)
+            # as those re-stamp _last_command_time and _last_requested_action, which would allow
+            # a flapping connection to recursively re-arm resync indefinitely.
             await self._send_ir_command(action_to_send)
         else:
             _LOGGER.debug(
@@ -450,7 +454,12 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             entry_data.set_last_controlled_via(source)
 
     async def _send_ir_command(self, code_key: str) -> bool:
-        """Send IR command using the configured format and transport backend."""
+        """Send IR command using the configured format and transport backend.
+
+        INVARIANT: This method is a pure low-level transport primitive with NO
+        state-tracking side effects. The resync-on-reconnect handler depends on
+        this purity to transmit recovery frames without re-arming pending intents.
+        """
         emitter = self._emitter_id
         if not emitter:
             _LOGGER.error("No emitter entity configured for %s", self.name)
