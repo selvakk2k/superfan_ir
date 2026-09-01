@@ -31,32 +31,20 @@ Superfan makes two primary remote control models. During configuration, select t
   <img src="images/remote_t12_6.png" alt="Superfan T12/6 Remote" width="250"/>
 </p>
 
-### 3. Multi-Brand Indian BLDC Fan Support
-The integration natively supports all popular Indian BLDC fan models:
-* **Atomberg**: Renesa, Efficio, Aris, Studio Series (6 speeds + Boost, Sleep, Timer, LED Light)
-* **Activa**: Gracia, Energia, Apsara Series (6 speeds, Nature, Smart, Reverse, Timer)
-* **Orient Electric**: I-Tome, Aeroslim, Wendy, Ecotech Series (5 speeds, Timer, LED Light)
-* **Goldmedal**: Opus Prime, Winzo, Spacio, Aura Lux Series (5 speeds, Sleep, Timer, LED Light)
-
-> 📖 **Full Protocol & Command Reference:** See **[CODES.md](CODES.md)** for complete 32-bit NEC address and command byte provenance.
-
 ---
 
 ## Features
 
-### 1. Multi-Transport Backend Options
-You can configure each fan using any major IR blaster hardware:
-* **Home Assistant Native Infrared (`infrared.*`):** Microsecond raw duration arrays (`RawIRCommand`).
-* **ESPHome (`esphome.<device>_transmit_raw`):** Signed pulse/space timing arrays (+pulse, -space).
-* **Broadlink Base64 (`remote.send_command`):** Native `0x26` packet format.
-* **Tuya Base64 (`remote.send_command`):** Little-endian uint16 byte stream.
-* **Pronto Hex:** Universal CCF format string.
-* **Tasmota MQTT:** 32-bit NEC JSON payload.
+### 1. Triple Dispatch Backend Options
+You can configure each fan using one of three IR transmission methods:
+* **Native Infrared (`ir_rf_proxy` - Recommended):** Uses Home Assistant's modern native `infrared` platform combined with ESPHome's `ir_rf_proxy` component. Converts Tuya Base64 payloads into raw microsecond timings on-the-fly (`RawIRCommand`).
+* **ESPHome (Raw API Service):** Communicates directly with ESPHome blasters via native API services (`esphome.<device_name>_transmit_raw`). Automatically converts Tuya Base64 payloads into alternating positive (pulse) and negative (space) microsecond values.
+* **Legacy Remote (Tuya Only):** Passes Tuya base64 strings directly to any configured Tuya-compatible `remote` entity via the `remote.send_command` service.
 
-### 2. Smart Switch Power Management & Resilient Boot-Gap Recovery
-* **Auto Power-on with Boot Delay:** Turning on the fan will automatically switch on the physical smart plug first and wait **1.5s** for the MCU to boot before blasting IR.
-* **Resilient Boot-Gap Recovery:** If an IR blaster is power-cycled, commands are cached with a **180s TTL** and automatically resynced once the blaster reconnects.
-* **Physical Remote Precedence:** Signal decoding via native IR receiver immediately updates HA state and clears any pending resync queues.
+### 2. Smart Switch Power Management
+If your fan is connected to a smart wall switch or plug (e.g. Sonoff, Shelly, Tuya), you can bind it directly within the integration options:
+* **Auto Power-on with Boot Delay:** Turning on the fan or adjusting the speed will automatically switch on the physical smart plug first and wait **2 seconds** for the fan's receiver board to boot before blasting the IR command.
+* **Power-Off Bypass:** Turning the fan off in Home Assistant will skip sending the IR command entirely and cleanly cut physical power via the smart switch, instantly updating the UI to "Off".
 
 ---
 
