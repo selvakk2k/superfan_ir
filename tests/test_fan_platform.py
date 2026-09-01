@@ -492,3 +492,47 @@ async def test_guarded_resync_ha_restart_no_spurious_transmission(mock_entry):
         await fan._async_emitter_state_changed(reconnect_event)
         mock_send.assert_not_called()
 
+
+@pytest.mark.asyncio
+async def test_guarded_resync_flapping_no_rearm(mock_entry):
+    """Test that repeated connection flaps do not recursively re-arm or re-trigger resync."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="infrared.living_blaster",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    # 1. User sets speed to 60% (Speed 3)
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(fan, "async_write_ha_state"):
+        mock_send.return_value = True
+        await fan.async_set_percentage(60)
+        assert fan._last_command_source == "HA"
+        assert fan._last_requested_action == "3"
+
+    # 2. First reconnect event
+    reconnect_event1 = MagicMock(spec=Event)
+    reconnect_event1.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send1:
+        mock_send1.return_value = True
+        await fan._async_emitter_state_changed(reconnect_event1)
+        mock_send1.assert_called_once_with("3")
+        assert fan._last_requested_action is None
+        assert fan._last_command_source == "Blaster Reconnect Resync"
+
+    # 3. Flapping: Second reconnect event 30 seconds later
+    reconnect_event2 = MagicMock(spec=Event)
+    reconnect_event2.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send2:
+        await fan._async_emitter_state_changed(reconnect_event2)
+        mock_send2.assert_not_called()
+

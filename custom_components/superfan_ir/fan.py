@@ -370,6 +370,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 await asyncio.sleep(0.3)
             action_to_send = self._last_requested_action
             self._last_requested_action = None
+            self._last_command_source = "Blaster Reconnect Resync"
             await self._send_ir_command(action_to_send)
         else:
             _LOGGER.debug(
