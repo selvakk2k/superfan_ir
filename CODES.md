@@ -21,8 +21,8 @@ $$\text{32-bit NEC Frame} = [\text{Address (16-bit)}] + [\text{Command (8-bit)}]
 
 | Brand / Model Identifier | 16-Bit Address | Capture / Verification Provenance | Status |
 | :--- | :--- | :--- | :--- |
-| **Superfan (T10 Series)** | `0x00DF` | Physical Remote Tuya IR Hub `remote.learn_command` & 32-bit NEC Verification | ✅ Hardware Verified |
-| **Superfan (T12/6 Series)** | `0x00DF` | Physical Remote Tuya IR Hub `remote.learn_command` & 32-bit NEC Verification | ✅ Hardware Verified |
+| **Superfan (T12/6 Series)** | `0x00DF` | Physical Remote Tuya IR Hub `remote.learn_command` Capture | ✅ Hardware Verified |
+| **Superfan (T10 Series)** | `0x00DF` | Tuya Database Grab, Cross-Checked against Hardware-Verified T12/6 Protocol | ✅ Verified |
 | **Atomberg (Renesa, Efficio, Studio, Aris)** | `0xF300` | Physical Remote Hardware Capture | ✅ Hardware Verified |
 | **Activa (Gracia, Energia, Apsara Series)** | `0x5AA5` | App-Sourced Database Cross-Checked against NEC Specs | ✅ Verified |
 | **Orient Electric (I-Tome, Aeroslim, Wendy)** | `0x6B94` | App-Sourced Database Cross-Checked against NEC Specs | ✅ Verified |
