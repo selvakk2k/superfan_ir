@@ -542,3 +542,90 @@ async def test_guarded_resync_flapping_no_rearm(mock_entry):
         await fan._async_emitter_state_changed(reconnect_event2)
         mock_send2.assert_not_called()
 
+
+@pytest.mark.asyncio
+async def test_fan_availability_tracks_emitter_and_switch(mock_entry):
+    """Test that fan entity availability strictly tracks IR emitter and power switch availability."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="remote.living_blaster",
+        power_switch="switch.fan_mains",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    blaster_state = MagicMock()
+    blaster_state.state = "on"
+    switch_state = MagicMock()
+    switch_state.state = "on"
+
+    def _get_state(entity_id):
+        if entity_id == "remote.living_blaster":
+            return blaster_state
+        if entity_id == "switch.fan_mains":
+            return switch_state
+        return None
+
+    fan.hass.states.get = _get_state
+
+    # 1. Both online -> available
+    assert fan.available is True
+
+    # 2. IR blaster becomes unavailable -> fan unavailable
+    blaster_state.state = "unavailable"
+    assert fan.available is False
+
+    # 3. IR blaster comes back online -> fan available
+    blaster_state.state = "on"
+    assert fan.available is True
+
+    # 4. Power switch becomes unavailable -> fan unavailable
+    switch_state.state = "unavailable"
+    assert fan.available is False
+
+
+@pytest.mark.asyncio
+async def test_rapid_toggle_activates_mains_switch(mock_entry):
+    """Test that rapid OFF then ON activates mains switch even if switch state still reports 'on'."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="remote.living_blaster",
+        power_switch="switch.fan_mains",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+    fan.hass.services.async_call = AsyncMock()
+
+    # Switch state in HA is still reporting 'on' (e.g. latency in relay report)
+    switch_state = MagicMock(state="on")
+    fan.hass.states.get = MagicMock(return_value=switch_state)
+
+    with patch.object(fan, "async_write_ha_state"), patch("asyncio.sleep", new_callable=AsyncMock):
+        # 1. Turn OFF -> should call switch.turn_off and set target state to 'off'
+        await fan.async_turn_off()
+        assert fan._target_power_switch_state == "off"
+        fan.hass.services.async_call.assert_called_with(
+            "switch",
+            "turn_off",
+            {"entity_id": "switch.fan_mains"},
+            context=fan._context,
+        )
+
+        # 2. Immediately turn back ON while switch_state is still reporting 'on'
+        fan.hass.services.async_call.reset_mock()
+        with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = True
+            await fan.async_turn_on()
+
+            # Must call switch.turn_on because target state was 'off'
+            fan.hass.services.async_call.assert_called_with(
+                "switch",
+                "turn_on",
+                {"entity_id": "switch.fan_mains"},
+                context=fan._context,
+            )
+            assert fan._target_power_switch_state == "on"
+
+

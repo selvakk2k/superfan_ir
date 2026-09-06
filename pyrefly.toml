@@ -1,0 +1,9 @@
+python-interpreter-path = "/home/skk/Documents/GitHub/ha-miraie-ac/.venv/bin/python"
+site-package-path = ["/home/skk/Documents/GitHub/ha-miraie-ac/.venv/lib/python3.14/site-packages"]
+search_path = [".", "custom_components"]
+project-excludes = ["tests", ".venv"]
+min-severity = "error"
+
+[errors]
+redundant-cast = false
+unnecessary-call = false

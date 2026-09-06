@@ -33,6 +33,9 @@ from .const import (
     MODEL_ORIENT,
     MODEL_T10,
     MODEL_T12_6,
+    SPEED_MAP_6,
+    SPEED_MAP_5,
+    SPEED_MAP_3,
 )
 from .ir import SuperfanNEC
 
@@ -185,6 +188,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
         self._default_pct: int = default_pct
         self._switch_turned_on_time: float = 0.0
+        self._target_power_switch_state: str | None = None
         self._last_command_time: float = 0.0
         self._last_command_source: str = "Init"
         self._last_requested_action: str | None = None
@@ -199,10 +203,28 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": entry.title,
+            "name": entry.title or "Fan",
             "manufacturer": brand_name,
-            "model": fan_model,
+            "model": self._model,
         }
+
+    @property
+    def available(self) -> bool:
+        """Return True if fan entity is available.
+
+        Since Superfan IR is an IR-controlled fan, it requires an available
+        IR blaster emitter. If a power switch is configured, that power switch
+        must also not be unavailable.
+        """
+        if self._emitter_id and hasattr(self, "hass") and self.hass:
+            st = self.hass.states.get(self._emitter_id)
+            if st is None or str(st.state).lower() in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                return False
+        if self._power_switch and hasattr(self, "hass") and self.hass:
+            st = self.hass.states.get(self._power_switch)
+            if st is not None and str(st.state).lower() in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                return False
+        return True
 
     async def async_added_to_hass(self) -> None:
         """Restore state and register event listeners."""
@@ -259,6 +281,9 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         new_state = event.data.get("new_state")
         if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return
+
+        if self._target_power_switch_state == new_state.state:
+            self._target_power_switch_state = None
 
         self._notify_control_source("Mains Switch")
         self._last_command_source = "Mains Switch"
@@ -345,6 +370,11 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         """Handle IR blaster emitter availability changes."""
         old_state = event.data.get("old_state")
         new_state = event.data.get("new_state")
+        try:
+            self.async_write_ha_state()
+        except Exception:
+            pass
+
         if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return
 
@@ -387,13 +417,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
     def _map_speed_to_percentage(self, speed_key: str) -> int:
         if self._model in (MODEL_ATOMBERG, MODEL_ACTIVA):
-            map_6 = {"1": 17, "2": 33, "3": 50, "4": 67, "5": 83, "6": 100, "Boost": 100}
-            return map_6.get(speed_key, 50)
+            return SPEED_MAP_6.get(speed_key, 50)
         if self._model in (MODEL_T10, MODEL_ORIENT, MODEL_GOLDMEDAL):
-            map_5 = {"1": 20, "2": 40, "3": 60, "4": 80, "5": 100, "Boost": 100}
-            return map_5.get(speed_key, 60)
-        map_t12 = {"Low": 33, "Medium": 66, "High": 100}
-        return map_t12.get(speed_key, 66)
+            return SPEED_MAP_5.get(speed_key, 60)
+        return SPEED_MAP_3.get(speed_key, 66)
 
     def _map_percentage_to_speed(self, percentage: int) -> str:
         """Map percentage to discrete model-specific speed key."""
@@ -431,21 +458,23 @@ class SuperfanEntity(FanEntity, RestoreEntity):
             return
 
         switch_state = self.hass.states.get(self._power_switch)
-        if switch_state and switch_state.state == "on":
-            # If switch was turned on recently (<1.5s), wait for MCU boot grace period
-            elapsed = time.monotonic() - self._switch_turned_on_time
-            if elapsed < 1.5:
-                await asyncio.sleep(max(0.1, 1.5 - elapsed))
+        # If switch was targeted to turn off or is not currently ON
+        if self._target_power_switch_state == "off" or switch_state is None or switch_state.state != "on":
+            self._target_power_switch_state = "on"
+            await self.hass.services.async_call(
+                "switch",
+                "turn_on",
+                {"entity_id": self._power_switch},
+                context=self._context,
+            )
+            self._switch_turned_on_time = time.monotonic()
+            await asyncio.sleep(1.5)
             return
 
-        await self.hass.services.async_call(
-            "switch",
-            "turn_on",
-            {"entity_id": self._power_switch},
-            context=self._context,
-        )
-        self._switch_turned_on_time = time.monotonic()
-        await asyncio.sleep(1.5)
+        # Switch is confirmed ON; wait for MCU boot grace period if recently turned on
+        elapsed = time.monotonic() - self._switch_turned_on_time
+        if elapsed < 1.5:
+            await asyncio.sleep(max(0.1, 1.5 - elapsed))
 
     def _notify_control_source(self, source: str) -> None:
         """Update shared last controlled via sensor."""
@@ -602,6 +631,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
 
         if self._power_switch:
             self._last_requested_action = None
+            self._target_power_switch_state = "off"
             try:
                 await self.hass.services.async_call(
                     "switch",
