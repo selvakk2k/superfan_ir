@@ -33,6 +33,7 @@ from .const import (
     MODEL_ORIENT,
     MODEL_T10,
     MODEL_T12_6,
+    NON_RESYNCABLE_ACTIONS,
     SPEED_MAP_6,
     SPEED_MAP_5,
     SPEED_MAP_3,
@@ -387,6 +388,7 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         if (
             self._last_command_source == "HA"
             and self._last_requested_action is not None
+            and self._last_requested_action not in NON_RESYNCABLE_ACTIONS
             and elapsed <= 180.0
         ):
             _LOGGER.info(
@@ -596,7 +598,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 target_preset = self._last_preset_mode
                 self._last_command_source = "HA"
                 self._last_command_time = time.monotonic()
-                self._last_requested_action = target_preset
+                if target_preset not in NON_RESYNCABLE_ACTIONS:
+                    self._last_requested_action = target_preset
+                else:
+                    self._last_requested_action = None
                 if not await self._send_ir_command(target_preset):
                     return
                 self._attr_is_on = True
@@ -644,7 +649,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
                 return
         else:
             cmd = "Power Off" if self._model == MODEL_ORIENT else "Power"
-            self._last_requested_action = cmd
+            if cmd not in NON_RESYNCABLE_ACTIONS:
+                self._last_requested_action = cmd
+            else:
+                self._last_requested_action = None
             if not await self._send_ir_command(cmd):
                 return
 
@@ -683,7 +691,10 @@ class SuperfanEntity(FanEntity, RestoreEntity):
         await self._ensure_power()
         self._last_command_source = "HA"
         self._last_command_time = time.monotonic()
-        self._last_requested_action = preset_mode
+        if preset_mode not in NON_RESYNCABLE_ACTIONS:
+            self._last_requested_action = preset_mode
+        else:
+            self._last_requested_action = None
 
         if not await self._send_ir_command(preset_mode):
             return

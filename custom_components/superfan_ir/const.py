@@ -53,3 +53,14 @@ BACKENDS = [BACKEND_REMOTE, BACKEND_INFRARED, BACKEND_ESPHOME]
 SPEED_MAP_6 = {"1": 17, "2": 33, "3": 50, "4": 67, "5": 83, "6": 100, "Boost": 100}
 SPEED_MAP_5 = {"1": 20, "2": 40, "3": 60, "4": 80, "5": 100, "Boost": 100}
 SPEED_MAP_3 = {"Low": 33, "Medium": 66, "High": 100}
+
+# Actions that are hardware toggles or non-idempotent relative cycles and must never be retransmitted on blaster reconnect
+NON_RESYNCABLE_ACTIONS = frozenset({
+    "Power",
+    "Speed Adjust",
+    "LED Light",
+    "Light",
+    "LED",
+    "Reverse Mode",
+    "Timer",
+})

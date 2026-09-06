@@ -5,6 +5,7 @@ from homeassistant.core import Event
 from custom_components.superfan_ir.fan import SuperfanEntity
 from custom_components.superfan_ir.const import (
     MODEL_ATOMBERG,
+    MODEL_ORIENT,
     MODEL_T10,
     MODEL_T12_6,
     BACKEND_INFRARED,
@@ -627,5 +628,130 @@ async def test_rapid_toggle_activates_mains_switch(mock_entry):
                 context=fan._context,
             )
             assert fan._target_power_switch_state == "on"
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_toggle_power_not_resynced(mock_entry):
+    """Test that toggle-only Power command is never retransmitted on reconnect for non-Orient models."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T10,
+        emitter_id="infrared.living_blaster",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(
+        fan, "async_write_ha_state"
+    ):
+        mock_send.return_value = True
+        await fan.async_turn_off()
+        # Toggle Power must NEVER be recorded in _last_requested_action
+        assert fan._last_requested_action is None
+        mock_send.assert_called_once_with("Power")
+
+    # Emitter reconnect event occurs
+    reconnect_event = MagicMock(spec=Event)
+    reconnect_event.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_resync:
+        await fan._async_emitter_state_changed(reconnect_event)
+        mock_resync.assert_not_called()
+
+    # Defense-in-depth: even if _last_requested_action somehow held "Power", reconnect handler must reject it
+    fan._last_command_source = "HA"
+    fan._last_requested_action = "Power"
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_resync:
+        await fan._async_emitter_state_changed(reconnect_event)
+        mock_resync.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_discrete_power_off_resynced_for_orient(mock_entry):
+    """Test that Orient's discrete Power Off command safely resyncs on reconnect."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_ORIENT,
+        emitter_id="infrared.living_blaster",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(
+        fan, "async_write_ha_state"
+    ):
+        mock_send.return_value = True
+        await fan.async_turn_off()
+        # Discrete Power Off is idempotent and safe to record for resync
+        assert fan._last_requested_action == "Power Off"
+        mock_send.assert_called_once_with("Power Off")
+
+    # Emitter reconnect event occurs
+    reconnect_event = MagicMock(spec=Event)
+    reconnect_event.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_resync:
+        mock_resync.return_value = True
+        await fan._async_emitter_state_changed(reconnect_event)
+        mock_resync.assert_called_once_with("Power Off")
+        assert fan._last_requested_action is None
+
+
+@pytest.mark.asyncio
+async def test_guarded_resync_toggle_presets_not_resynced(mock_entry):
+    """Test that cyclic and toggle presets (Speed Adjust, LED Light, Reverse Mode) are not resynced."""
+    fan = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_ATOMBERG,
+        emitter_id="infrared.living_blaster",
+    )
+    fan.entity_id = "fan.test_fan"
+    fan.hass = MagicMock()
+
+    # 1. LED Light toggle preset
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(
+        fan, "async_write_ha_state"
+    ):
+        mock_send.return_value = True
+        await fan.async_set_preset_mode("LED Light")
+        assert fan._last_requested_action is None
+        mock_send.assert_called_once_with("LED Light")
+
+    reconnect_event = MagicMock(spec=Event)
+    reconnect_event.data = {
+        "old_state": MagicMock(state="unavailable"),
+        "new_state": MagicMock(state="available"),
+    }
+
+    with patch.object(fan, "_send_ir_command", new_callable=AsyncMock) as mock_resync:
+        await fan._async_emitter_state_changed(reconnect_event)
+        mock_resync.assert_not_called()
+
+    # 2. Reverse Mode on T12/6
+    fan_t12 = SuperfanEntity(
+        entry=mock_entry,
+        fan_model=MODEL_T12_6,
+        emitter_id="infrared.living_blaster",
+    )
+    fan_t12.entity_id = "fan.test_fan"
+    fan_t12.hass = MagicMock()
+
+    with patch.object(fan_t12, "_send_ir_command", new_callable=AsyncMock) as mock_send, patch.object(
+        fan_t12, "async_write_ha_state"
+    ):
+        mock_send.return_value = True
+        await fan_t12.async_set_preset_mode("Reverse Mode")
+        assert fan_t12._last_requested_action is None
+        mock_send.assert_called_once_with("Reverse Mode")
+
+    with patch.object(fan_t12, "_send_ir_command", new_callable=AsyncMock) as mock_resync:
+        await fan_t12._async_emitter_state_changed(reconnect_event)
+        mock_resync.assert_not_called()
 
 
