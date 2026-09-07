@@ -8,7 +8,8 @@
 
 A modern Home Assistant custom integration for controlling Superfan ceiling fans via infrared (IR) blasters. This integration supports config flows, multiple device configuration, smart switches, and is compatible with both the legacy `remote` command architecture (exclusively for Tuya-based IR blasters) and the native Home Assistant `infrared` platform.
 
-> 💡 A dedicated Lovelace card with a premium UI is available: **[superfan-card](https://github.com/selvakk2k/superfan-card)**
+> [!TIP]
+> A companion Lovelace card is available: **[superfan-card](https://github.com/selvakk2k/superfan-card)**
 
 ---
 
@@ -93,7 +94,8 @@ If your fan is connected to a smart wall switch or plug (e.g. Sonoff, Shelly, Tu
 
 ## ESPHome Configuration Examples
 
-> ⚠️ **Note:** Pin numbers in the examples below (e.g., `P7`, `P26`, `GPIOXX`) are for demonstration purposes. Be sure to substitute them with the actual pin assignments for your specific hardware board.
+> [!NOTE]
+> Pin numbers in the examples below (e.g., `P7`, `P26`, `GPIOXX`) are for demonstration purposes. Be sure to substitute them with the actual pin assignments for your specific hardware board.
 
 ### Option A: Modern Native Infrared (`ir_rf_proxy`) [Recommended]
 
