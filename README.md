@@ -134,4 +134,4 @@ infrared:
 * **Code Implementation & Engineering**: **Antigravity** (Google DeepMind) — custom raw timing conversions, native `infrared` platform integration, and config flows.
 * **Pre-Release Code Review & Auditing**: **Claude** (Anthropic) — independent code review, timing accuracy audits, and edge-case verification.
 
-Licensed under the **MIT License**. See the `LICENSE` file for details.
+Licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
