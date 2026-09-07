@@ -1,7 +1,10 @@
 # Superfan IR Native Integration (`superfan_ir`)
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/github/v/release/selvakk2k/superfan_ir)](https://github.com/selvakk2k/superfan_ir/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square)](https://github.com/hacs/integration)
+[![Stable](https://img.shields.io/github/v/release/selvakk2k/superfan_ir?label=Stable&style=flat-square)](https://github.com/selvakk2k/superfan_ir/releases/latest)
+[![Beta](https://img.shields.io/github/v/release/selvakk2k/superfan_ir?include_prereleases&label=Beta&color=orange&style=flat-square)](https://github.com/selvakk2k/superfan_ir/releases)
+[![AI-Assisted](https://img.shields.io/badge/AI%20Assisted-Antigravity%20%7C%20Claude-blueviolet?style=flat-square&logo=google)](https://github.com/selvakk2k)
+[![AI Attribution](https://img.shields.io/badge/AI%20Attribution-AIA%20PAI%20Nc%20Hin-orange?style=flat-square)](https://aiattribution.github.io/interpret-attribution)
 
 A modern Home Assistant custom integration for controlling Superfan ceiling fans via infrared (IR) blasters. This integration supports config flows, multiple device configuration, smart switches, and is compatible with both the legacy `remote` command architecture (exclusively for Tuya-based IR blasters) and the native Home Assistant `infrared` platform.
 
@@ -113,6 +116,9 @@ infrared:
 
 ## Credits & License
 
-Enhancements, custom raw timing conversions, and native `infrared` support developed by [@selvakk2k](https://github.com/selvakk2k) with design and ideation assistance from **Claude** (Anthropic) and code implementation assistance from **Gemini/Antigravity** (Google DeepMind).
+### Project Contributors & AI Attribution
+* **Lead Architecture & Hardware Validation**: [@selvakk2k](https://github.com/selvakk2k) — physical remote timing captures, hardware validation on Superfan units, and domain architecture.
+* **Code Implementation & Engineering**: **Antigravity** (Google DeepMind) — custom raw timing conversions, native `infrared` platform integration, and config flows.
+* **Pre-Release Code Review & Auditing**: **Claude** (Anthropic) — independent code review, timing accuracy audits, and edge-case verification.
 
 Licensed under the **MIT License**. See the `LICENSE` file for details.
