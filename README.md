@@ -12,6 +12,17 @@ A modern Home Assistant custom integration for controlling Superfan ceiling fans
 
 ---
 
+## Table of Contents
+
+1. [Remote Mappings & Compatibility](#remote-mappings--compatibility)
+2. [Features](#features)
+3. [Installation](#installation)
+4. [Configuration](#configuration)
+5. [ESPHome Configuration Examples](#esphome-configuration-examples)
+6. [Credits & License](#credits--license)
+
+---
+
 ## Remote Mappings & Compatibility
 
 Superfan makes two primary remote control models. During configuration, select the remote type corresponding to your fan series:
